@@ -7,59 +7,108 @@ const STATUS_TEXT = { steady: "steady", blip: "blip, ignored", trend: "changed" 
 const MOVE_TEXT = {
   continue: "Keep going",
   smaller_hint: "Smaller hint",
-  new_explanation: "Explain it a different way",
+  new_explanation: "Explain it differently",
   worked_example: "Worked example",
   harder_problem: "Raise the difficulty",
-  check_in: "Check in with the student",
+  check_in: "Check in",
 };
+// Short names for the timeline, where a column is narrow.
+const MOVE_SHORT = {
+  continue: "Go on", smaller_hint: "Hint", new_explanation: "Re-explain",
+  worked_example: "Example", harder_problem: "Harder", check_in: "Check in",
+};
+// The overall learning state, when the bot sends one. Fixed colours: the three that match a
+// reading share its colour, bored is amber, and neutral is grey on purpose.
+const STATES = ["engaged", "frustrated", "confused", "bored", "neutral"];
+const STATE_COLOR = { engaged: "var(--engagement)", frustrated: "var(--frustration)", confused: "var(--confusion)", bored: "var(--bored)", neutral: "var(--neutral)" };
+const stateColor = (st) => STATE_COLOR[st] ?? "var(--muted)";
 const history = []; // one snapshot per scored turn
+// Teaching moves, each with how many readings the dashboard had when the move arrived.
+// The bot sends each reading here as it gives it to the tutor, and the move comes back
+// with the reply, so this is the newest reading the tutor could have used.
+const moves = [];
 
 const $ = (id) => document.getElementById(id);
-const pct = (v) => `${Math.max(0, Math.min(1, v)) * 100}%`;
+const clamp = (v) => Math.max(0, Math.min(1, v));
+const pct = (v) => `${clamp(v) * 100}%`;
 const color = (dim) => `var(--${dim})`;
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const dimsOf = (snapshot) => [...DIMS, ...Object.keys(snapshot.dimensions).filter((d) => !DIMS.includes(d))]
+  .filter((d) => snapshot.dimensions[d]);
+const colorOf = (dim) => (DIMS.includes(dim) ? color(dim) : "var(--muted)");
+
+// One headline for the turn: the learning state the tracker settled on, how sure it is,
+// and how that belief is spread over all five states. Absent when the bot sent none.
+function renderHeadline(ls) {
+  $("headline").hidden = !ls;
+  if (!ls) return;
+  const name = $("state-name");
+  name.textContent = ls.state;
+  name.style.setProperty("--c", stateColor(ls.state));
+  const bits = [`${Math.round(ls.certainty * 100)}% sure`, ls.turns === 1 ? "new this turn" : `${ls.turns} turns`];
+  if (ls.reading && ls.reading !== ls.state) bits.push(`this turn looked ${ls.reading}`);
+  $("state-meta").textContent = bits.join(" · ");
+  const dist = ls.distribution ?? {};
+  const order = [...STATES, ...Object.keys(dist).filter((st) => !STATES.includes(st))];
+  $("state-dist").innerHTML = order.filter((st) => dist[st] > 0.005).map((st) =>
+    `<i style="flex:${dist[st]};background:${stateColor(st)}" title="${esc(st)} ${Math.round(dist[st] * 100)}%"></i>`).join("");
+  $("state-dist").setAttribute("aria-label", order.filter((st) => dist[st] != null).map((st) => `${st} ${Math.round(dist[st] * 100)}%`).join(", "));
+}
+
+// How this turn differs from the student's own usual, and how much it counted.
+function renderUsual(snapshot) {
+  const chips = Object.entries(snapshot.vs_usual ?? {}).map(([what, how]) => `<span>${esc(what)} <b>${esc(how)}</b></span>`);
+  if (snapshot.weight != null && snapshot.weight < 1) chips.push(`<span class="soft">short turn, counted ${snapshot.weight === 0.5 ? "half" : `×${snapshot.weight}`}</span>`);
+  $("usual").hidden = !chips.length;
+  $("usual-chips").innerHTML = chips.join("");
+  const v = snapshot.voice;
+  $("pitch").hidden = !(v && v.pitch_hz);
+  if (v?.pitch_hz) $("pitch").textContent = `pitch ${v.pitch_hz} Hz` + (v.loudness != null ? ` · ${v.loudness} dBFS` : "");
+}
 
 function renderNow(snapshot) {
-  $("key").hidden = false;
-  $("dims").innerHTML = DIMS.filter((d) => snapshot.dimensions[d]).map((dim) => {
+  $("key").hidden = $("scale").hidden = false;
+  renderHeadline(snapshot.learning_state);
+  renderUsual(snapshot);
+  $("dims").innerHTML = dimsOf(snapshot).map((dim) => {
     const d = snapshot.dimensions[dim];
-    // Band half-width grows as the model gets less sure of its reading.
+    // The band grows as the model gets less sure of this turn's reading.
     const half = 0.04 + (1 - d.confidence) * 0.22;
-    const left = Math.max(0, d.reading - half), right = Math.min(1, d.reading + half);
-    // The percentage is about this turn's reading, which on a blip is not the level shown.
+    const left = clamp(d.reading - half), right = clamp(d.reading + half);
     const sure = `${Math.round(d.confidence * 100)}% sure`;
     const read = d.seen === d.level ? sure : `this turn read ${d.seen}, ${sure}`;
-    return `<div class="dim">
-      <div class="name">${dim}<small>${d.level}, ${read}</small></div>
-      <div class="track" role="img" aria-label="${dim}: ${d.level}, estimate ${d.estimate}, reading ${d.reading}">
+    const badge = d.status === "trend" ? `<em class="trend">new</em>` : d.status === "blip" ? `<em class="blip">blip</em>` : "";
+    return `<div class="dim ${d.status}" title="${esc(dim)}: ${d.level}. Smoothed ${d.estimate}, this turn ${d.reading} (${read}). ${STATUS_TEXT[d.status] ?? d.status}.">
+      <div class="name"><i style="background:${colorOf(dim)}"></i>${esc(dim)}</div>
+      <div class="track" role="img" aria-label="${esc(dim)}: ${d.level}, smoothed ${d.estimate}, this turn ${d.reading}, ${read}">
+        <span class="band" style="left:${pct(left)};width:${pct(right - left)};background:${colorOf(dim)}"></span>
+        <span class="fill" style="width:${pct(d.estimate)};background:${colorOf(dim)}"></span>
         <span class="zone" style="left:35%"></span><span class="zone" style="left:65%"></span>
-        <span class="band" style="left:${pct(left)};width:${pct(right - left)};background:${color(dim)}"></span>
-        <span class="reading" style="left:${pct(d.reading)};border-color:${color(dim)}"></span>
-        <span class="estimate" style="left:${pct(d.estimate)};background:${color(dim)}"></span>
+        <span class="reading" style="left:${pct(d.reading)};border-color:${colorOf(dim)}"></span>
       </div>
-      <span class="chip ${d.status}">${STATUS_TEXT[d.status] ?? d.status}</span>
+      <div class="level">${badge}${d.level}</div>
     </div>`;
   }).join("");
 }
 
-// Deepgram's word timings for the turn, as measured. A wait is only there when one was measured.
+// Deepgram's word timings for the turn, as measured. Anything not measured shows a dash.
 function renderEvidence(e) {
-  $("measured").hidden = e.words == null; // a turn with nothing measured shows nothing
-  if (e.words == null) return;
-  const seconds = (v) => `${v.toFixed(1)} s`;
-  const cells = [
-    e.words_per_minute == null
-      ? [e.words, e.words === 1 ? "word, too few for a pace" : "words, too few for a pace"]
-      : [e.words_per_minute, "words a minute"],
-    [seconds(e.longest_pause), "longest pause"],
-    [e.fillers, e.fillers === 1 ? "um or uh" : "ums and uhs"],
-  ];
-  if (e.waited != null) cells.push([seconds(e.waited), "before you answered"]);
-  $("evidence").innerHTML = cells.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+  const cell = (value, unit, label) => value == null
+    ? `<div><dt>${label}</dt><dd class="none">–</dd></div>`
+    : `<div><dt>${label}</dt><dd>${value}${unit ? `<small>${unit}</small>` : ""}</dd></div>`;
+  const tooFew = e.words != null && e.words_per_minute == null;
+  $("evidence").innerHTML = [
+    tooFew
+      ? cell(e.words, "", e.words === 1 ? "word, too few for a pace" : "words, too few for a pace")
+      : cell(e.words_per_minute, "", "words a minute"),
+    cell(e.longest_pause?.toFixed(1), "s", "longest pause"),
+    cell(e.fillers, "", e.fillers === 1 ? "um or uh" : "ums and uhs"),
+    cell(e.waited?.toFixed(1), "s", "wait before answering"),
+  ].join("");
+  $("spoke").hidden = e.words == null;
+  if (e.words != null) $("spoke").textContent = `${e.words} ${e.words === 1 ? "word" : "words"} in ${e.seconds.toFixed(1)} s`
+    + (e.hedges ? ` · ${e.hedges} ${e.hedges === 1 ? "hedge" : "hedges"}` : "");
 }
-
-// Memory: the classes the tutor was told about, and the study plan, as the bot sent them.
-// The text was written by a model from the student's own class, so it is escaped.
-const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 // Math: text between dollar signs is LaTeX, drawn by KaTeX. If KaTeX did not load,
 // or cannot read it, the math is shown as it was written.
@@ -92,56 +141,115 @@ function planHtml(markdown) {
   return html + (inList ? "</ul>" : "");
 }
 
+// Memory: the classes the tutor was told about, and the study plan, as the bot sent them.
+// The text was written by a model from the student's own class, so it is escaped.
 function renderMemory(m) {
   const classes = (m.lectures ?? []).map((c) => {
-    const stuck = (c.sticking_points ?? []).length ? `<span>Likely sticking points: ${withMath(c.sticking_points.join("; "))}</span>` : "";
+    const stuck = (c.sticking_points ?? []).length ? `<span>Sticking points: ${withMath(c.sticking_points.join("; "))}</span>` : "";
     return `<p class="class"><b>${withMath(c.title)}</b>
       <span>${withMath([c.subject, (c.concepts ?? []).join(", ")].filter(Boolean).join(": "))}</span>${stuck}</p>`;
   }).join("");
   const moments = m.hard_moments
-    ? `<p class="class"><b>Earlier sessions</b><span>${Number(m.hard_moments)} ${m.hard_moments === 1 ? "moment" : "moments"} where you sounded stuck</span></p>`
+    ? `<p class="class"><b>Earlier sessions</b><span>${Number(m.hard_moments)} ${m.hard_moments === 1 ? "moment" : "moments"} where the student sounded stuck</span></p>`
     : "";
   if (!classes && !moments && !m.plan) {
-    $("memory").innerHTML = `<p class="empty">Nothing saved yet. Record a class and Ilumina opens the next session from it.</p>`;
+    $("memory").innerHTML = `<p class="empty">Nothing saved yet.</p>`;
     return;
   }
   $("memory").innerHTML = classes + moments
-    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
-    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.</p>`;
+    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "");
 }
 
+// Over the session: one row per reading, plus a row for the tutor's moves.
+// The line is the smoothed estimate; squares are each turn's reading, hollow when ignored as a blip.
 function renderTrace() {
-  const W = 1100, rowH = 84, padL = 110, padR = 20, top = 8;
-  const n = Math.max(history.length, 8);
-  const x = (i) => padL + (i + 0.5) * ((W - padL - padR) / n);
-  const rows = DIMS.map((dim, r) => {
-    const y0 = top + r * rowH, y = (v) => y0 + rowH - 12 - v * (rowH - 24);
+  const W = 1160, rowH = 56, padL = 104, padR = 12, top = 6, moveH = 34;
+  const dims = [...new Set(history.flatMap(dimsOf))];
+  const n = Math.max(history.length, 12);
+  const colW = (W - padL - padR) / n;
+  const x = (i) => padL + (i + 0.5) * colW;
+  const hasState = history.some((s) => s.learning_state);
+  const stateH = hasState ? 34 : 0;
+  const rowsTop = top + stateH;
+  const rowsBottom = rowsTop + dims.length * rowH;
+  const H = rowsBottom + moveH + 18;
+  const cols = history.map((s, i) =>
+    `<rect class="col" data-i="${i}" x="${padL + i * colW}" y="0" width="${colW}" height="${rowsBottom + moveH}"/>`).join("");
+  const rows = dims.map((dim, r) => {
+    const y0 = rowsTop + r * rowH, y = (v) => y0 + rowH - 8 - clamp(v) * (rowH - 16);
     const pts = history.map((s, i) => ({ i, d: s.dimensions[dim] })).filter((p) => p.d);
     const line = pts.map((p) => `${x(p.i)},${y(p.d.estimate)}`).join(" ");
-    const dots = pts.map((p) => {
-      const blip = p.d.status === "blip";
-      return `<circle cx="${x(p.i)}" cy="${y(p.d.reading)}" r="${p.d.status === "trend" ? 6 : 4.5}"
-        fill="${blip ? "var(--panel)" : color(dim)}" stroke="${color(dim)}" stroke-width="2">
-        <title>Turn ${history[p.i].turn}: read ${p.d.reading}, ${STATUS_TEXT[p.d.status] ?? p.d.status}</title></circle>`;
+    const marks = pts.map((p) => {
+      const blip = p.d.status === "blip", s = p.d.status === "trend" ? 10 : 8;
+      return `<rect x="${x(p.i) - s / 2}" y="${y(p.d.reading) - s / 2}" width="${s}" height="${s}"
+        fill="${blip ? "var(--bg)" : colorOf(dim)}" stroke="${colorOf(dim)}" stroke-width="2" ${blip ? 'stroke-dasharray="2 1.5"' : ""}/>`;
     }).join("");
-    return `<line x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--grid)"/>
-      <text class="dimname" x="0" y="${y0 + rowH / 2 + 5}">${dim}</text>
-      <polyline points="${line}" fill="none" stroke="${color(dim)}" stroke-width="2.5" stroke-linejoin="round"/>${dots}`;
+    return `<line x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>
+      <line x1="${padL}" x2="${W - padR}" y1="${y(0.65)}" y2="${y(0.65)}" stroke="var(--line)" stroke-dasharray="2 4"/>
+      <rect x="0" y="${y0 + rowH / 2 - 9}" width="8" height="8" fill="${colorOf(dim)}"/>
+      <text class="row" x="14" y="${y0 + rowH / 2}">${esc(dim)}</text>
+      <polyline points="${line}" fill="none" stroke="${colorOf(dim)}" stroke-width="2" stroke-linejoin="round" opacity=".55"/>${marks}`;
   }).join("");
-  const ticks = history.map((s, i) => `<text x="${x(i)}" y="${top + DIMS.length * rowH + 14}" text-anchor="middle">${s.turn}</text>`).join("");
-  $("trace").innerHTML = `<svg viewBox="0 0 ${W} ${top + DIMS.length * rowH + 22}" role="img"
-    aria-label="Smoothed estimate and per-turn readings for each dimension, by turn">${rows}${ticks}</svg>`;
+  const pill = (cx, cy, w, fill, label) => `<rect x="${cx - w / 2}" y="${cy}" width="${w}" height="18" fill="${fill}"/>
+    <text x="${cx}" y="${cy + 13}" text-anchor="middle" style="fill:#fff;font-size:11px;font-weight:600">${esc(label)}</text>`;
+  const pillW = Math.min(colW - 6, 74);
+  // A move belongs to the column of the newest reading the tutor could have had.
+  const byCol = new Map();
+  for (const m of moves) if (m.after > 0) byCol.set(m.after - 1, m.move);
+  const moveRow = `<line x1="${padL}" x2="${W - padR}" y1="${rowsBottom + 4}" y2="${rowsBottom + 4}" stroke="var(--ink)" stroke-width="2"/>
+    <text class="row" x="0" y="${rowsBottom + 24}">Tutor</text>` +
+    [...byCol].map(([i, move]) => {
+      const label = MOVE_SHORT[move] ?? move;
+      return pill(x(i), rowsBottom + 11, pillW, "var(--ink)", colW < 60 ? label.slice(0, 6) : label);
+    }).join("");
+  const stateRow = !hasState ? "" : `<text class="row" x="0" y="${top + 17}">State</text>` +
+    history.map((s, i) => s.learning_state
+      ? pill(x(i), top + 4, pillW, stateColor(s.learning_state.state), colW < 60 ? s.learning_state.state.slice(0, 5) : s.learning_state.state)
+      : "").join("");
+  const ticks = history.map((s, i) => `<text x="${x(i)}" y="${H - 2}" text-anchor="middle">${s.turn}</text>`).join("");
+  $("trace").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="Smoothed estimate and per-turn readings for each dimension, with the tutor's move, by turn">${cols}${stateRow}${rows}${moveRow}${ticks}</svg>`;
+  $("trace").querySelectorAll(".col").forEach((col) => {
+    col.addEventListener("mouseenter", () => showTip(col));
+    col.addEventListener("mouseleave", () => { $("tip").hidden = true; col.classList.remove("on"); });
+  });
+}
+
+function showTip(col) {
+  const i = Number(col.dataset.i), s = history[i];
+  col.classList.add("on");
+  const rows = dimsOf(s).map((dim) => {
+    const d = s.dimensions[dim];
+    return `<div><span>${esc(dim)}</span><span>${d.level}${d.status === "blip" ? " (blip)" : d.status === "trend" ? " (new)" : ""}</span></div>`;
+  }).join("");
+  const turnMoves = moves.filter((m) => m.after === i + 1).map((m) => MOVE_TEXT[m.move] ?? m.move);
+  const tip = $("tip");
+  const ls = s.learning_state;
+  const stateLine = ls ? `<div><span>state</span><span>${esc(ls.state)} (${Math.round(ls.certainty * 100)}%)</span></div>` : "";
+  tip.innerHTML = `<b>Turn ${s.turn}</b>${stateLine}${rows}${turnMoves.length ? `<div><span>tutor</span><span>${esc(turnMoves.join(", "))}</span></div>` : ""}`;
+  tip.hidden = false;
+  const box = $("trace").getBoundingClientRect(), r = col.getBoundingClientRect(), host = tip.parentElement.getBoundingClientRect();
+  const left = r.right - host.left + 8;
+  tip.style.left = `${left + tip.offsetWidth > host.width ? r.left - host.left - tip.offsetWidth - 8 : left}px`;
+  tip.style.top = `${box.top - host.top + 8}px`;
 }
 
 function addLine(who, text) {
+  $("lines-empty")?.remove();
   const li = document.createElement("li");
+  if (who === "You") li.className = "me";
   const b = document.createElement("b");
-  b.textContent = `${who}: `;
+  b.textContent = who;
   li.append(b, text);
   $("lines").append(li);
   $("lines").scrollTop = $("lines").scrollHeight;
 }
 
+function renderMic(level, cls) {
+  // How loud the bot hears the microphone, from 60 dB below full scale up to full scale, in ten steps.
+  const lit = Math.round(clamp(level) * 10);
+  $("mic-level").innerHTML = Array.from({ length: 10 }, (_, i) => `<i class="${i < lit ? cls : ""}"></i>`).join("");
+}
 let micTimer;
 
 // Where the conversation is, from the bot's own events, so the student never has to
@@ -232,55 +340,58 @@ const stageEvents = {
   onBotStoppedSpeaking: () => { if (!userSpeaking && !micPaused) setStage("listening"); },
 };
 
+
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
     history.push(msg);
     renderNow(msg);
     renderTrace();
+    $("note-box").hidden = false;
     $("note").classList.remove("stale");
     $("note").textContent = msg.note ?? "";
-    if (msg.scored_ms != null) {
-      $("scored").hidden = false;
-      $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
-    }
+    $("scored").textContent = msg.scored_ms != null
+      ? `turn ${msg.turn} · scored in ${(msg.scored_ms / 1000).toFixed(2)} s`
+      : `turn ${msg.turn}`;
   } else if (msg?.type === "mic_level") {
-    // How loud the bot hears the microphone, from 60 dB below full scale up to full scale.
     $("mic").hidden = false;
     const paused = micPaused || Date.now() < micGraceUntil;
     $("mic").classList.toggle("silent", msg.silent && !paused);
-    $("mic-fill").style.width = pct((msg.dbfs + 60) / 60);
-    $("mic-text").textContent = paused ? "Mic is paused" : msg.silent ? "Mic is silent" : "Mic is live";
+    renderMic((msg.dbfs + 60) / 60, "on");
+    $("mic-text").textContent = paused ? "Mic paused" : msg.silent ? "Mic is silent" : "Mic live";
     // Levels come once a second. If they stop, no sound is reaching the bot at all.
     clearTimeout(micTimer);
     micTimer = setTimeout(() => {
       $("mic").classList.add("silent");
-      $("mic-fill").style.width = "0";
-      $("mic-text").textContent = "No sound is arriving";
+      renderMic(0);
+      $("mic-text").textContent = "No sound arriving";
     }, 3000);
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
     renderMemory(msg);
   } else if (msg?.type === "teaching_move") {
-    $("move").hidden = false;
-    $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
+    moves.push({ move: msg.move, after: history.length });
+    $("move").classList.remove("none");
+    $("move").textContent = MOVE_TEXT[msg.move] ?? msg.move;
+    $("why").hidden = !history.length;
+    $("why").textContent = history.length ? `after the turn ${history.at(-1).turn} reading` : "";
+    if (history.length) renderTrace();
   } else if (msg?.type === "board") {
     // The math the tutor is talking about. It stays up until the tutor writes something new.
     $("board").hidden = false;
     $("board-math").innerHTML = tex(msg.latex, true);
   } else if (msg?.type === "student_state_error") {
+    $("note-box").hidden = false;
     $("note").classList.add("stale");
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
     $("note").textContent =
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
+    $("scored").textContent = "last reading failed";
   } else if (msg?.type === "session_info") {
-    $("running").hidden = false;
-    $("running").textContent =
-      `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
-      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
+    $("running").textContent = `Pipecat · Deepgram Flux + Aura-2 · ${msg.tutor_model} teaches · ${msg.emotion_model} reads`;
     headcam = msg.camera === "gopro";
-    if (headcam) $("cam-hint").textContent = "Wear the GoPro and look at your page so Ilumina can read the problem and your working.";
+    if (headcam) $("cam-hint").textContent = "head-worn GoPro";
   } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {
     $("cam-seen").textContent = msg.seen
       ? "Ilumina got a picture with your last turn."
@@ -439,4 +550,4 @@ $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, addLine }; // lets checks feed recorded messages and a camera track
