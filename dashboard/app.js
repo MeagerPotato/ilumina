@@ -77,6 +77,7 @@ function receive(msg) {
 }
 
 let client;
+const shownSegments = new Set();
 async function toggle() {
   const button = $("connect");
   if (client) {
@@ -94,9 +95,17 @@ async function toggle() {
       onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
-      onBotOutput: (o) => { if ((o.output_type ?? o.aggregated_by) === "sentence") addLine("Ally", o.text); },
+      onBotOutput: (o) => {
+        // Each spoken sentence arrives twice (announced, then completed). Show it once.
+        if (o.output_type !== "sentence") return;
+        if (o.segment_id == null ? o.spoken_status === "new" : shownSegments.has(o.segment_id)) return;
+        shownSegments.add(o.segment_id);
+        addLine("Ally", o.text);
+      },
       onTrackStarted: (track, participant) => {
-        if (track.kind === "audio" && !participant?.local) $("bot-audio").srcObject = new MediaStream([track]);
+        if (track.kind !== "audio" || participant?.local) return;
+        if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
+        $("bot-audio").srcObject = new MediaStream([track]);
       },
       onError: (e) => { $("status").textContent = "Something went wrong. Check the bot's terminal."; console.error(e); },
     },
