@@ -68,12 +68,15 @@ let last = performance.now();
 let lastFrame = -1;
 const speed = parseFloat(params.get('speed') || '1');
 let frozen = params.has('t') ? parseFloat(params.get('t')) : null;
+let shownT = 0; // the moment on screen, which clicks act on
 
 function renderAt(t) {
+  shownT = t;
   const shake = story.update(t);
   setFrustum(camera, layout.W, layout.H, ORIGIN_X + shake.x, ORIGIN_Y + shake.y);
   story.drawOverlay(t, shake);
   renderer.render(stage.scene, camera);
+  document.body.style.cursor = story.hasLine(t) ? 'pointer' : '';
 }
 
 function tick(now) {
@@ -89,6 +92,27 @@ function tick(now) {
   renderAt(frame / 30);
 }
 
+// Dialogue works like a game: click, tap, Space or Enter finishes the line
+// being typed, and the next press skips to the end of it.
+function advance() {
+  const to = story.advance(shownT);
+  if (to === null) return;
+  dirty = true;
+  if (to === shownT) return; // finished the typing, or dismissed a line
+  if (frozen === null) clock = to % DURATION;
+  else frozen = to;
+}
+window.addEventListener('pointerdown', (e) => {
+  if (e.button === 0) advance();
+});
+window.addEventListener('keydown', (e) => {
+  if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === ' ' || e.key === 'Enter') {
+    e.preventDefault();
+    advance();
+  }
+});
+
 window.addEventListener('resize', applyLayout);
 applyLayout();
 requestAnimationFrame(tick);
@@ -100,6 +124,7 @@ window.__scene = {
     renderAt(Math.floor(t * 30) / 30);
   },
   play() {
+    if (frozen !== null) clock = frozen;
     frozen = null;
   },
   duration: DURATION,

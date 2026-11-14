@@ -210,8 +210,10 @@ const LINES = [
   ['p', 16.0, 19.0, 'THE ANSWER WAS INSIDE YOU ALL ALONG.'],
   ['s', 19.2, 20.8, 'IT WAS NOT.'],
   ['p', 21.6, 24.8, 'THE UNEXAMINED HOMEWORK IS NOT WORTH DOING.'],
-  ['s', 27.12, 27.85, 'PONDER THIS.'],
-  ['p', 27.75, 29.0, 'I THINK, THEREFORE I RUN!'],
+  // lines over the gun sequence are only dismissed when skipped, so a click
+  // never jumps over the action
+  ['s', 27.12, 27.85, 'PONDER THIS.', 'hold'],
+  ['p', 27.75, 29.0, 'I THINK, THEREFORE I RUN!', 'hold'],
   ['t', 37.6, 40.6, "YOU SOUND FRUSTRATED. LET'S SLOW DOWN."],
   ['t', 40.8, 43.6, "WHAT'S THE DERIVATIVE OF JUST X²?"],
   ['s', 43.8, 46.4, '...2X? OH! I GET IT!'],
@@ -219,8 +221,14 @@ const LINES = [
   ['p', 49.6, 51.3, 'IS IT SAFE TO PONDER YET?'],
 ];
 const TYPE_RATE = 30;
+// Lines the viewer clicked to finish early (their mouths stop with the text)
+// and lines they dismissed.
+const REVEALED = new Set();
+const DISMISSED = new Set();
 const talking = (who, t) =>
-  LINES.some(([w, a, b, txt]) => w === who && t >= a && t < Math.min(b, a + txt.length / TYPE_RATE + 0.35));
+  LINES.some(([w, a, b, txt], i) => w === who && !REVEALED.has(i) && !DISMISSED.has(i) && t >= a && t < Math.min(b, a + txt.length / TYPE_RATE + 0.35));
+const onScreen = (i, t) => t >= LINES[i][1] && t < LINES[i][2] && !DISMISSED.has(i);
+const typedAll = (i, t) => REVEALED.has(i) || (t - LINES[i][1]) * TYPE_RATE >= LINES[i][3].length;
 
 // ---------------------------------------------------------------- key times
 
@@ -742,6 +750,8 @@ export class Story {
     const tc = Math.floor(t * 15) / 15; // characters animate on twos
     const shake = { x: 0, y: 0 };
     const rm = this.reduceMotion;
+    // a line only stays finished while it is on screen (the loop and skips move past it)
+    for (const set of [REVEALED, DISMISSED]) for (const i of set) if (t < LINES[i][1] || t >= LINES[i][2]) set.delete(i);
 
     // loop transitions: dithered dissolve in and out
     shared.uDissolve.value = t < 0.6 ? 1 - seg(t, 0, 0.6) : seg(t, DURATION - 1.0, DURATION - 0.2);
@@ -1407,6 +1417,28 @@ export class Story {
     };
   }
 
+  // Game-style dialogue. With a line on screen, the first click finishes
+  // typing it and the next one skips to where it ends. Returns the time to
+  // jump to, or null when there is no line to act on.
+  advance(t) {
+    const on = LINES.map((_, i) => i).filter((i) => onScreen(i, t));
+    if (!on.length) return null;
+    const typing = on.filter((i) => !typedAll(i, t));
+    if (typing.length) {
+      for (const i of typing) REVEALED.add(i);
+      return t;
+    }
+    const jump = on.filter((i) => LINES[i][4] !== 'hold');
+    for (const i of on) if (LINES[i][4] === 'hold') DISMISSED.add(i);
+    if (!jump.length) return t;
+    // land on the first whole frame after the line, so it is gone at once
+    return Math.ceil(Math.max(...jump.map((i) => LINES[i][2])) * 30 + 1e-6) / 30;
+  }
+
+  hasLine(t) {
+    return LINES.some((_, i) => onScreen(i, t));
+  }
+
   drawOverlay(t, shake) {
     const ov = this.ov;
     ov.clear();
@@ -1436,8 +1468,8 @@ export class Story {
     }
 
     // speech
-    for (const [who, a, b, text] of LINES) {
-      if (t < a || t >= b) continue;
+    LINES.forEach(([who, a, b, text], i) => {
+      if (!onScreen(i, t)) return;
       let anchor;
       if (who === 's') anchor = s.headPoint(0, 30, 2, V());
       else if (who === 'p') anchor = p.headPoint(0, 27, 0, V());
@@ -1445,8 +1477,9 @@ export class Story {
       const pt = proj(anchor);
       const style = who === 's' ? 'student' : who === 'p' ? 'phil' : 'tutor';
       const lean = who === 's' ? -0.18 : who === 'p' ? 0.2 : -0.3;
-      ov.bubble({ text, ax: pt.x, ay: pt.y, style, shown: Math.floor((t - a) * TYPE_RATE), lean });
-    }
+      const full = typedAll(i, t);
+      ov.bubble({ text, ax: pt.x, ay: pt.y, style, shown: full ? Infinity : Math.floor((t - a) * TYPE_RATE), lean, next: full && Math.floor(t * 2.5) % 2 === 0 });
+    });
 
     // question mark
     if (t > 1.6 && t < 2.4) {

@@ -192,7 +192,7 @@ export class Overlay {
   }
 
   // Speech bubble pointing at (ax, ay). `shown` is how many characters are typed so far.
-  bubble({ text, ax, ay, style = 'student', shown = Infinity, lean = 0, maxW = 112 }) {
+  bubble({ text, ax, ay, style = 'student', shown = Infinity, lean = 0, maxW = 112, next = false }) {
     const st = STYLES[style];
     const s = this.s;
     // never wider than the canvas, even with doubled lettering on a phone
@@ -256,6 +256,14 @@ export class Overlay {
       const ly = by + (padY + i * LINE_H) * s;
       this.text(lines[i], lx, ly, st.text, left);
       left -= lines[i].length + 1;
+    }
+    // the "click to continue" arrow in the bottom right corner
+    if (next) {
+      g.fillStyle = st.text;
+      const nx = bx + bw - 10 * s, ny = by + bh - 4 * s;
+      g.fillRect(nx, ny, 5 * s, s);
+      g.fillRect(nx + s, ny + s, 3 * s, s);
+      g.fillRect(nx + 2 * s, ny + 2 * s, s, s);
     }
     return { x: bx, y: by, w: bw, h: bh };
   }
