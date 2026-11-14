@@ -1,6 +1,6 @@
 # Ilumina
 
-Ally is a voice tutor that listens to how a student sounds, not only what they say, and changes how it teaches.
+Ilumina is a voice tutor that listens to how a student sounds, not only what they say, and changes how it teaches.
 
 Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and Gemini for the thinking.
 
@@ -24,9 +24,9 @@ uv sync
 uv run bot.py
 ```
 
-Open http://localhost:7860/dashboard/, click Start session, and talk. Use earbuds so Ally does not hear itself.
+Open http://localhost:7860/dashboard/, click Start session, and talk. Use earbuds so Ilumina does not hear itself.
 
-The dashboard shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ally was given. The plain Pipecat test client is still at http://localhost:7860/client.
+The dashboard shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
 
 The first run downloads the voice activity model, so give it about 20 seconds.
 
@@ -50,7 +50,7 @@ All in `.env`:
 | `ilumina/emotion.py` | Decision 1 rubrics and the scoring call |
 | `ilumina/state.py` | State tracker, no model calls, reusable outside tutoring |
 | `ilumina/processors.py` | Hands the state note to the tutor before each reply |
-| `ilumina/prompts.py` | Ally's persona and teaching rules |
+| `ilumina/prompts.py` | Ilumina's persona and teaching rules |
 | `ilumina/config.py` | Keys and model IDs from the environment |
 | `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0 and `@pipecat-ai/small-webrtc-transport` 1.11.2 bundled with esbuild |
 

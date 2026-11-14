@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ally, live</title>
+<title>Ilumina, live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
@@ -14,6 +14,7 @@
     --warn: #a15c00;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--paper); color: var(--ink);
     font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -25,14 +26,16 @@
   main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
   header { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 6px; }
   h1 { font-size: 56px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
-  .tag { color: var(--muted); max-width: 46ch; margin: 0 auto 4px 0; }
+  .tag { color: var(--muted); max-width: 46ch; margin: 0 0 4px; }
   button {
     font: inherit; font-weight: 600; color: #fff; background: var(--ink); border: 0;
     padding: 12px 22px; border-radius: 999px; cursor: pointer;
   }
   button:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   button[disabled] { opacity: .55; cursor: default; }
-  .status { color: var(--muted); font-size: 15px; min-width: 14ch; }
+  .session { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+  .status { color: var(--muted); font-size: 15px; }
+  .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
   section { background: var(--panel); border: 1.5px solid var(--ink); border-radius: 6px; padding: 20px 22px; }
@@ -78,12 +81,15 @@
 <body>
 <main>
   <header>
-    <h1>Ally</h1>
+    <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
-    <span class="status" id="status" role="status">Not connected</span>
-    <button id="connect">Start session</button>
+    <div class="session">
+      <span class="status" id="status" role="status">Not connected</span>
+      <button id="connect">Start session</button>
+    </div>
   </header>
-  <p class="consent">Starting a session turns on your microphone. Ally scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. Audio is not saved.</p>
+  <p class="problem" id="problem" role="alert" hidden></p>
+  <p class="consent">Starting a session turns on your microphone. Ilumina scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. Audio is not saved.</p>
 
   <div class="cols">
     <section aria-labelledby="now-h">
@@ -96,16 +102,16 @@
       </div>
     </section>
     <section aria-labelledby="talk-h">
-      <h2 id="talk-h">What Ally was told, and what it chose</h2>
-      <p class="note" id="note">Nothing yet. Ally gets a one-line summary before each reply.</p>
-      <p class="move" id="move" hidden>Ally chose: <b id="move-name"></b></p>
+      <h2 id="talk-h">What Ilumina was told, and what it chose</h2>
+      <p class="note" id="note">Nothing yet. Ilumina gets a one-line summary before each reply.</p>
+      <p class="move" id="move" hidden>Ilumina chose: <b id="move-name"></b></p>
       <ul class="lines" id="lines" aria-live="polite"></ul>
     </section>
   </div>
 
   <section class="trace" aria-labelledby="trace-h">
     <h2 id="trace-h">Across the session</h2>
-    <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ally ignored.</p></div>
+    <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ilumina ignored.</p></div>
   </section>
   <audio id="bot-audio" autoplay></audio>
 </main>

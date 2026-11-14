@@ -1,4 +1,4 @@
-// Ally dashboard. Everything drawn here comes from messages the bot sends.
+// Ilumina dashboard. Everything drawn here comes from messages the bot sends.
 // Nothing is simulated: with no messages, the page stays empty.
 import { PipecatClient, SmallWebRTCTransport } from "./vendor/pipecat.js";
 
@@ -83,7 +83,7 @@ function receive(msg) {
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
-    $("note").textContent = "The reading for this turn failed. Ally is using the last state it had.";
+    $("note").textContent = "The reading for this turn failed. Ilumina is using the last state it had.";
   }
 }
 
@@ -102,7 +102,7 @@ async function toggle() {
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; },
+      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; },
       onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
@@ -111,14 +111,21 @@ async function toggle() {
         if (o.output_type !== "sentence") return;
         if (o.segment_id == null ? o.spoken_status === "new" : shownSegments.has(o.segment_id)) return;
         shownSegments.add(o.segment_id);
-        addLine("Ally", o.text);
+        addLine("Ilumina", o.text);
       },
       onTrackStarted: (track, participant) => {
         if (track.kind !== "audio" || participant?.local) return;
         if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
         $("bot-audio").srcObject = new MediaStream([track]);
       },
-      onError: (e) => { $("status").textContent = "Something went wrong. Check the bot's terminal."; console.error(e); },
+      onError: (e) => {
+        console.error(e);
+        // Show the bot's own error text so the cause is visible without the terminal.
+        const detail = e?.data?.message ?? e?.data?.error ?? (typeof e?.data === "string" ? e.data : "");
+        $("status").textContent = "Connected, with an error";
+        $("problem").hidden = false;
+        $("problem").textContent = `The bot reported a problem: ${detail || "no details sent. Check the bot's terminal."}`;
+      },
     },
   });
   try {
