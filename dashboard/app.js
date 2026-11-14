@@ -144,6 +144,75 @@ function addLine(who, text) {
 
 let micTimer;
 
+// Where the conversation is, from the bot's own events, so the student never has to
+// guess whether they were heard. Each stage is a name and what to do meanwhile.
+const STAGES = {
+  starting: ["Getting ready", "Ilumina is about to say hello."],
+  listening: ["Your turn", "Ilumina is listening."],
+  hearing: ["Hearing you", "Press Done talking to send it now."],
+  thinking: ["Heard you", "Ilumina is thinking."],
+  speaking: ["Ilumina is speaking", "Talk over it to interrupt."],
+};
+let userSpeaking = false, micPaused = false, quietTimer, pauseTimer;
+
+function setStage(stage, hint) {
+  clearTimeout(quietTimer);
+  $("stage").hidden = !stage;
+  if (!stage) return;
+  $("stage").dataset.stage = stage;
+  $("stage-name").textContent = STAGES[stage][0];
+  $("stage-hint").textContent = hint ?? STAGES[stage][1];
+  $("done").hidden = stage !== "hearing";
+}
+
+// The words Flux has so far for this turn. Seeing them is the proof of being heard.
+function hearing(text) {
+  if (micPaused) return; // the turn was already sent with Done talking
+  userSpeaking = true;
+  const words = text?.trim();
+  setStage("hearing", words ? `Heard so far: "${words.length > 90 ? "…" + words.slice(-90) : words}"` : undefined);
+  // In a loud room Flux can wait a long time to be sure the turn is over. Say so.
+  quietTimer = setTimeout(() => {
+    setStage("hearing", "No new words. Ilumina is waiting to be sure you have finished. Press Done talking to send it now.");
+  }, 2500);
+}
+
+function setMic(on) {
+  const track = client?.tracks()?.local?.audio;
+  if (track) track.enabled = on; // a switched-off track sends silence, so the bot still gets audio
+}
+
+// A silent microphone is the clearest end of a turn there is, even in a loud room.
+function doneTalking() {
+  if (micPaused) return;
+  micPaused = true;
+  setMic(false);
+  setStage("thinking", "Sent. Your microphone is paused until Ilumina answers.");
+  clearTimeout(pauseTimer);
+  pauseTimer = setTimeout(() => {
+    resumeMic();
+    setStage("listening", "Ilumina did not answer. Your microphone is back on, so say it again.");
+  }, 12000);
+}
+
+function resumeMic() {
+  clearTimeout(pauseTimer);
+  if (!micPaused) return;
+  micPaused = false;
+  userSpeaking = false;
+  setMic(true);
+}
+
+const stageEvents = {
+  onBotReady: () => setStage("starting"),
+  onUserStartedSpeaking: () => hearing(""),
+  onUserStoppedSpeaking: () => { userSpeaking = false; if (!micPaused) setStage("thinking"); },
+  onBotLlmStarted: () => { if (!userSpeaking && !micPaused) setStage("thinking"); },
+  onBotStartedSpeaking: () => { resumeMic(); if (!userSpeaking) setStage("speaking"); },
+  // After an interruption the student is still talking, so the stage stays on them.
+  onBotStoppedSpeaking: () => { if (!userSpeaking && !micPaused) setStage("listening"); },
+};
+
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
@@ -159,9 +228,9 @@ function receive(msg) {
   } else if (msg?.type === "mic_level") {
     // How loud the bot hears the microphone, from 60 dB below full scale up to full scale.
     $("mic").hidden = false;
-    $("mic").classList.toggle("silent", msg.silent);
+    $("mic").classList.toggle("silent", msg.silent && !micPaused);
     $("mic-fill").style.width = pct((msg.dbfs + 60) / 60);
-    $("mic-text").textContent = msg.silent ? "Mic is silent" : "Mic is live";
+    $("mic-text").textContent = micPaused ? "Mic is paused" : msg.silent ? "Mic is silent" : "Mic is live";
     // Levels come once a second. If they stop, no sound is reaching the bot at all.
     clearTimeout(micTimer);
     micTimer = setTimeout(() => {
@@ -287,9 +356,10 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); clearTimeout(pauseTimer); micPaused = userSpeaking = false; setStage(null); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
-      onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
+      ...stageEvents,
+      onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
       onBotOutput: (o) => {
         // Each spoken sentence arrives twice (announced, then completed). Show it once.
         if (o.output_type !== "sentence") return;
@@ -342,8 +412,9 @@ async function toggle() {
 }
 
 $("connect").addEventListener("click", toggle);
+$("done").addEventListener("click", doneTalking);
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera, setHeadcam }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing }; // lets checks feed recorded messages and a camera track
