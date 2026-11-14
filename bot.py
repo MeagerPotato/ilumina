@@ -1,7 +1,9 @@
 """Ilumina: Ilumina, an emotionally aware voice tutor.
 
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
-Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
+Emotion path: each student turn's audio, its measured voice features and how they
+              compare with the student's usual -> Gemini Decision 1 -> StateTracker
+              (Bayesian smoothing with per-state persistence)
               -> a state note for the tutor and a live message for the dashboard
 Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per turn
               -> shown on the dashboard and given to Decision 1 beside the audio
@@ -54,8 +56,9 @@ from pipecat.transports.base_transport import (
 from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config, memory
+from ilumina.baseline import SpeakerBaseline
 from ilumina.emotion import score_turn
-from ilumina.evidence import describe_evidence
+from ilumina.measured import measure_turn
 from ilumina.processors import (
     CameraView,
     MicLevel,
@@ -64,7 +67,7 @@ from ilumina.processors import (
     VoiceEvidence,
 )
 from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
-from ilumina.state import StateTracker, describe
+from ilumina.state import LearningStateTracker, StateTracker, describe
 
 headcam = None
 if config.CAMERA == "gopro":
@@ -128,6 +131,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     # Emotion path
     decisions_client = genai.Client(api_key=config.GOOGLE_API_KEY)
     tracker = StateTracker()
+    learning_tracker = LearningStateTracker()
+    baseline = SpeakerBaseline()  # this student's usual voice, for this session only
     voice_evidence = VoiceEvidence()
     state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
@@ -166,12 +171,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             wav = pcm_to_wav(audio, sample_rate, num_channels)
             evidence = voice_evidence.take()
             started = time.monotonic()
-            readings = await score_turn(
+            # A few milliseconds of numpy; off the event loop so audio keeps flowing.
+            measured = await asyncio.to_thread(measure_turn, wav, evidence, baseline)
+            readings, learning = await score_turn(
                 decisions_client,
                 config.DECISION_MODEL,
                 wav,
                 recent_text(context),
-                describe_evidence(evidence) if evidence else "",
+                measured["text"],
             )
             scored_ms = round((time.monotonic() - started) * 1000)
         except Exception as e:  # noqa: BLE001 - any emotion failure must not stop the voice loop
@@ -182,7 +189,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             return
         if not readings:
             return
-        snapshot = tracker.update(readings)
+        snapshot = tracker.update(readings, weight=measured["weight"])
+        if learning:
+            learning_state = learning_tracker.update(learning, weight=measured["weight"])
+            if learning_state:
+                snapshot["learning_state"] = learning_state
         struggling = [
             name
             for name in ("confusion", "frustration")
@@ -200,6 +211,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "type": "student_state",
                     "note": describe(snapshot),
                     "scored_ms": scored_ms,
+                    # Measured, not judged: voice features of this turn, clear changes
+                    # from the student's usual, and how much this turn counted (0 to 1).
+                    "voice": measured["voice"],
+                    "vs_usual": measured["vs_usual"],
+                    "weight": measured["weight"],
                     **snapshot,
                 }
             )
