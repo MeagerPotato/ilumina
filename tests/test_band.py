@@ -211,6 +211,12 @@ def test_the_band_is_the_microphone_and_the_computer_takes_over_when_asked():
         link.use_mic(False)
         assert wait_for(lambda: link.status.get("mic") is False)
         assert link.sound(640) is None
+
+        # Back on: the band counts its sound from zero again, and must still be heard.
+        link.use_mic(True)
+        assert wait_for(lambda: link.status.get("mic") is True)
+        sim.play_loudness(vexo_band.SPEECH_LEVEL, seconds=0.02 * len(packets), packets=packets)
+        assert wait_for(loud)
     finally:
         link.stop(link._tell)
     assert wait_for(lambda: link.status["state"] == "off")
@@ -224,7 +230,8 @@ class FakeLink:
         return self._sound and self._sound[:size]
 
 
-def through_band_mic(link, audio: bytes, rate: int = 16000) -> bytes:
+def through_band_mic(link, audio: bytes, rate: int = 16000, pieces: int = 1) -> bytes:
+    """What comes out for the last of `pieces` equal pieces of the computer's sound."""
     out = []
 
     async def keep(frame, direction):
@@ -233,8 +240,9 @@ def through_band_mic(link, audio: bytes, rate: int = 16000) -> bytes:
     async def run():
         mic = BandMic(link)
         mic.push_frame = keep
-        frame = InputAudioRawFrame(audio=audio, sample_rate=rate, num_channels=1)
-        await mic.process_frame(frame, FrameDirection.DOWNSTREAM)
+        for _ in range(pieces):
+            frame = InputAudioRawFrame(audio=audio, sample_rate=rate, num_channels=1)
+            await mic.process_frame(frame, FrameDirection.DOWNSTREAM)
 
     asyncio.run(run())
     return out[-1].audio
@@ -247,7 +255,9 @@ def test_the_bands_sound_replaces_the_computers_but_never_a_paused_or_odd_one():
 
     assert through_band_mic(FakeLink(band), computer) == band
     # "Done talking" pauses the computer's microphone: the band must not keep the turn open.
-    assert through_band_mic(FakeLink(band), silent) == silent
+    assert through_band_mic(FakeLink(band), silent, pieces=5) == silent
+    # A single quiet piece is only a quiet moment at the computer: the band is still heard.
+    assert through_band_mic(FakeLink(band), silent) == band
     # No sound from the band: the computer's microphone goes through untouched.
     assert through_band_mic(FakeLink(None), computer) == computer
     # A rate the band does not speak is left alone.

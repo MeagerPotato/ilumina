@@ -124,6 +124,8 @@ class BandLink:
         return taken
 
     def _heard(self, pcm: bytes) -> None:
+        if not pcm:
+            return  # a packet the decoder threw away is not sound arriving
         with self._sound_lock:
             self._sound += pcm
             del self._sound[: max(0, len(self._sound) - _MAX_WAITING_BYTES)]  # newest wins
@@ -186,6 +188,13 @@ class BandLink:
         mic_on, shown = None, None
         while not stop.is_set() and band.connected:
             if self.mic != mic_on:
+                if self.mic:
+                    # The band counts its sound from zero at every start, so an old decoder
+                    # would throw the new sound away as late. Old sound is not live either.
+                    decoder = audio.PcmDecoder()
+                    with self._sound_lock:
+                        self._sound.clear()
+                        self._collecting = True
                 band.configure(audio=self.mic)
                 mic_on, shown = self.mic, None  # the band's microphone takes over its light
                 self._say(stop, "connected", battery=battery, mic=mic_on)

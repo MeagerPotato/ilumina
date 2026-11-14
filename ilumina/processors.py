@@ -300,8 +300,10 @@ class StudentStateInjector(FrameProcessor):
         )
 
 
-# A microphone the student paused on the dashboard sends samples no louder than this.
+# A microphone the student paused on the dashboard sends samples no louder than this, for
+# at least this many pieces in a row (100 ms). A shorter dip is only a quiet moment.
 _PAUSED_PEAK = 4
+_PAUSED_PIECES = 5
 _BAND_RATE = 16000  # the band's sound: 16 kHz, one channel
 
 
@@ -320,6 +322,7 @@ class BandMic(FrameProcessor):
     def __init__(self, link, **kwargs):
         super().__init__(**kwargs)
         self._link = link
+        self._quiet_pieces = 0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -331,10 +334,12 @@ class BandMic(FrameProcessor):
         ):
             try:
                 samples = np.frombuffer(frame.audio, dtype=np.int16)
-                if int(np.abs(samples.astype(np.int32)).max()) > _PAUSED_PEAK:
-                    sound = self._link.sound(len(frame.audio))
-                    if sound is not None:
-                        frame.audio = sound
+                quiet = int(np.abs(samples.astype(np.int32)).max()) <= _PAUSED_PEAK
+                self._quiet_pieces = self._quiet_pieces + 1 if quiet else 0
+                # Taken even while paused, so the band's sound never piles up and runs late.
+                sound = self._link.sound(len(frame.audio))
+                if sound is not None and self._quiet_pieces < _PAUSED_PIECES:
+                    frame.audio = sound
             except Exception as e:  # noqa: BLE001 - the computer's sound goes on instead
                 logger.debug(f"Band sound not used for this piece: {e}")
         await self.push_frame(frame, direction)
