@@ -23,6 +23,10 @@ GOPRO_IP = os.getenv("GOPRO_IP") or None
 # just ended. After that it answers with the last known state.
 STATE_WAIT_SECONDS = 0.4
 
+# Check each step the student gives for mistakes: a second Decision 1 call per turn,
+# beside the emotion call. Set ILUMINA_WORK_CHECK=off to run without it.
+WORK_CHECK = (os.getenv("ILUMINA_WORK_CHECK") or "on").lower() not in ("off", "no", "false", "0")
+
 # Opt-in: save tutoring sessions (the moments the student struggled) to memory/.
 # Lectures from the Vexo band are saved only when the student says yes in lecture.py.
 SAVE_MEMORY = (os.getenv("ILUMINA_MEMORY") or "off").lower() in ("on", "yes", "true", "1")

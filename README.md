@@ -8,6 +8,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 
 - **Voice path.** Browser mic, Deepgram Flux speech to text and turn detection, a Gemini tutor model, Deepgram Aura-2 text to speech.
 - **Emotion path.** The audio of each student turn goes to Gemini Decision 1, which scores confusion, frustration, confidence and engagement with a confidence value for each.
+- **Work check.** The same audio goes to Decision 1 a second time, in a separate call, with the last lines of the conversation and the camera picture when there is one. It answers four choice questions, each with a probability: is the step right, what kind of mistake is it, where did it go wrong, and what should the student do next. The tutor gets the result as a one-line note inside the same 0.4 second wait as the emotion reading, and the dashboard shows it. A check that comes too late goes with the next turn and says so. `ILUMINA_WORK_CHECK=off` runs without it.
 - **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, filler words and how long the student waited before answering. The dashboard shows these numbers, and Decision 1 gets them as one line beside the audio.
 - **Mic meter.** Once a second the bot tells the dashboard how loud the microphone is, as speech to text gets it, and logs it every 5 seconds. A silent microphone shows as "Mic is silent".
 - **Two kinds of session.** The student picks one on the dashboard before starting. In **Homework** the tutor works through a problem the student brings, usually on paper in front of the camera. In **Lecture review** the tutor goes back over the newest saved class one idea at a time, with its notes and its transcript in hand. The dashboard tells the bot which kind before it connects (`POST /mode/...`). A review with no saved class starts as homework and says so.
@@ -86,6 +87,7 @@ All in `.env`:
 | --- | --- |
 | `bot.py` | The Pipecat pipeline and wiring |
 | `ilumina/emotion.py` | Decision 1 rubrics and the scoring call |
+| `ilumina/workcheck.py` | Decision 1 questions about the student's step, and the note for the tutor |
 | `ilumina/evidence.py` | Pace, pauses, fillers and wait for one turn, from Deepgram's word timings |
 | `ilumina/state.py` | State tracker, no model calls, reusable outside tutoring |
 | `ilumina/headcam.py` | Runs the GoPro feed while the student has the camera on, and hands out its newest frame |

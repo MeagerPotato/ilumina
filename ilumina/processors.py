@@ -1,11 +1,13 @@
 """Pipecat processors: voice evidence, camera view and state note in, teaching move out."""
 
 import asyncio
+import io
 import math
 import time
 
 import numpy as np
 from loguru import logger
+from PIL import Image
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -25,6 +27,7 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from ilumina.evidence import voice_evidence
 from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
+from ilumina.workcheck import describe as describe_check
 
 # A camera frame older than this is not shown to the tutor (camera off or stalled).
 # Frames arrive about a second apart, so this allows for one late frame.
@@ -90,6 +93,16 @@ class CameraView(FrameProcessor):
         if frame is None or time.monotonic() - self._latest_at > _MAX_FRAME_AGE_SECONDS:
             return None
         return frame.format, frame.size, frame.image
+
+    def jpeg(self) -> bytes | None:
+        """The current picture as a JPEG for the work check, or None. Nothing is saved."""
+        picture = self._newest()
+        if picture is None:
+            return None
+        format, size, image = picture
+        out = io.BytesIO()
+        Image.frombytes(format, size, image).convert("RGB").save(out, "JPEG", quality=80)
+        return out.getvalue()
 
     async def _show(self, context) -> bool:
         picture = self._newest()
@@ -214,31 +227,72 @@ class StudentStateInjector(FrameProcessor):
     turn's emotion reading, then adds a one-line state note to the context.
     If the reading is late or missing, the tutor answers without a new note,
     so voice never blocks on emotion.
+
+    With `expect_work_check`, the same short wait also covers the check of the
+    student's work, and its note is added too. A check that comes too late for its
+    own turn is given with the next one and says so.
     """
 
-    def __init__(self, wait_seconds: float, **kwargs):
+    def __init__(self, wait_seconds: float, expect_work_check: bool = False, **kwargs):
         super().__init__(**kwargs)
         self._wait_seconds = wait_seconds
         self._fresh = asyncio.Event()
         self._snapshot: dict | None = None
+        self._expect_work_check = expect_work_check
+        self._work_fresh = asyncio.Event()
+        self._work: tuple[float, dict] | None = None  # (when the check started, the check)
+        self._answered_at = 0.0  # when the last student turn went on to the tutor
 
     def set_snapshot(self, snapshot: dict):
         self._snapshot = snapshot
         self._fresh.set()
 
+    def set_work_check(self, check: dict, started: float):
+        """`started` is time.monotonic() from when the check of that turn began."""
+        if self._work and started < self._work[0]:
+            return  # an older turn's check that finished after a newer one
+        self._work = (started, check)
+        if started > self._answered_at:
+            self._work_fresh.set()
+
+    async def _wait_for_notes(self):
+        waits = [self._fresh.wait()]
+        if self._expect_work_check:
+            if not (self._work and self._work[0] > self._answered_at):
+                self._work_fresh.clear()  # what is here, if anything, is an earlier turn's
+            waits.append(self._work_fresh.wait())
+        try:
+            await asyncio.wait_for(asyncio.gather(*waits), self._wait_seconds)
+        except TimeoutError:
+            pass
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if _answers_student(frame):
-            try:
-                await asyncio.wait_for(self._fresh.wait(), self._wait_seconds)
-            except TimeoutError:
-                pass
+            await self._wait_for_notes()
             if self._fresh.is_set() and self._snapshot:
                 frame.context.add_message(
                     {"role": "developer", "content": describe(self._snapshot)}
                 )
                 self._fresh.clear()
+            await self._add_work_check(frame.context)
+            self._answered_at = time.monotonic()
         await self.push_frame(frame, direction)
+
+    async def _add_work_check(self, context):
+        if self._work is None:
+            return
+        (started, check), self._work = self._work, None
+        which = "newest" if started > self._answered_at else "previous"
+        note = describe_check(check, which)
+        if not note:
+            return  # there was no step to check, so the tutor is told nothing
+        context.add_message({"role": "developer", "content": note})
+        logger.info(f"Work check given to the tutor, about the {which} turn")
+        # So the dashboard can say whether the tutor had the check before it answered.
+        await self.push_frame(
+            RTVIServerMessageFrame(data={"type": "work_check_told", "which": which})
+        )
 
 
 # Longest opening we will hold back while looking for a tag that never closes.

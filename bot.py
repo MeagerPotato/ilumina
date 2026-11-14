@@ -3,6 +3,9 @@
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
+Work check:   the same audio, the last lines and the camera picture -> Gemini Decision 1
+              -> is the step right, what kind of mistake, where, and what to do next
+              -> a note for the tutor and a live message for the dashboard
 Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per turn
               -> shown on the dashboard and given to Decision 1 beside the audio
 Camera path:  the newest camera frame is shown to the tutor with each student turn
@@ -74,6 +77,7 @@ from ilumina.prompts import (
     review_note,
 )
 from ilumina.state import StateTracker, describe
+from ilumina.workcheck import check_work
 
 
 def _keep_words_out_of_the_log(record) -> None:
@@ -168,7 +172,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     decisions_client = genai.Client(api_key=config.GOOGLE_API_KEY)
     tracker = StateTracker()
     voice_evidence = VoiceEvidence()
-    state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
+    state_injector = StudentStateInjector(
+        wait_seconds=config.STATE_WAIT_SECONDS, expect_work_check=config.WORK_CHECK
+    )
+    camera_view = CameraView(headcam=headcam)
+    work_checks = set()  # checks still running, held here so none is dropped part-way
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
     hard_moments = []  # turns where the student sounded confused or frustrated
     kept = False
@@ -191,7 +199,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             stt,
             voice_evidence,
             user_aggregator,
-            CameraView(headcam=headcam),
+            camera_view,
             state_injector,
             llm,
             TeachingMoveTagger(),
@@ -207,6 +215,28 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
 
+    async def check_turn(wav: bytes):
+        """Check the work in the turn that just ended. A failure here never stops the tutor."""
+        started = time.monotonic()
+        try:
+            jpeg = await asyncio.to_thread(camera_view.jpeg)
+            check = await check_work(
+                decisions_client, config.DECISION_MODEL, wav, recent_text(context), jpeg
+            )
+        except Exception as e:  # noqa: BLE001 - the tutor answers without the check
+            logger.warning(f"Work check failed, tutor continues without it: {e}")
+            await worker.queue_frame(
+                RTVIServerMessageFrame(data={"type": "work_check_error", "error": str(e)})
+            )
+            return
+        if not check:
+            return
+        check["checked_ms"] = round((time.monotonic() - started) * 1000)
+        check["with_picture"] = jpeg is not None
+        state_injector.set_work_check(check, started)
+        logger.info(f"Work check: {check}")  # option names and numbers only, never the words
+        await worker.queue_frame(RTVIServerMessageFrame(data={"type": "work_check", **check}))
+
     # "on_user_turn_audio_data" fires the moment the student stops speaking.
     # The newer "on_user_turn_audio" only fires after the bot has replied, which
     # is too late to shape that reply. Deprecated in Pipecat 2.0; we pin <2.
@@ -215,6 +245,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         """Score the turn that just ended. A failure here never stops the tutor."""
         try:
             wav = pcm_to_wav(audio, sample_rate, num_channels)
+            if config.WORK_CHECK:  # runs beside the emotion scoring, not after it
+                task = asyncio.create_task(check_turn(wav))
+                work_checks.add(task)
+                task.add_done_callback(work_checks.discard)
             evidence = voice_evidence.take()
             started = time.monotonic()
             readings = await score_turn(
@@ -271,6 +305,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
                     "camera": config.CAMERA,
+                    "work_check": config.WORK_CHECK,
                     "mode": "review" if review else "homework",
                     "no_class_to_review": asked_for_review and not review,
                     # With the setting on, hard moments are saved without a question.

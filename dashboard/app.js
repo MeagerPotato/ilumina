@@ -63,6 +63,26 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 // Math: text between dollar signs is LaTeX, drawn by KaTeX. If KaTeX did not load,
 // or cannot read it, the math is shown as it was written.
+// The check of the student's last step, as the bot sent it: real probabilities only.
+const VERDICT_TEXT = { mistake: "Probably a mistake", correct: "Looks right", nothing: "Nothing to check in that turn" };
+const WORK_ROWS = [["kind", "What kind"], ["place", "Where"], ["fix", "What to do next"]];
+const sure = (part) => `${Math.round(part.sure * 100)}%`;
+
+function renderWork(check) {
+  const verdict = check.verdict?.choice;
+  const rows = verdict !== "mistake" ? [] : WORK_ROWS
+    .filter(([key]) => check[key] && check[key].choice !== "none")
+    .map(([key, name]) => `<div><dt>${name}</dt><dd>${esc(check[key].label)}</dd><dd>${sure(check[key])}</dd></div>`);
+  const from = check.with_picture ? "your voice, your words and a picture of your page" : "your voice and your words";
+  const took = check.checked_ms == null ? "" : ` in ${(check.checked_ms / 1000).toFixed(2)} seconds`;
+  $("work").innerHTML =
+    `<p class="verdict" data-verdict="${esc(verdict)}"><b>${esc(VERDICT_TEXT[verdict] ?? check.verdict?.label ?? "")}</b>` +
+    `<span>${check.verdict ? sure(check.verdict) + " sure" : ""}</span></p>` +
+    (rows.length ? `<dl>${rows.join("")}</dl>` : "") +
+    `<p class="scored">Checked from ${from}${took}. An estimate, not a grade.</p>`;
+  $("work-told").hidden = true; // that line was about the check before this one
+}
+
 function tex(latex, display = false) {
   try {
     return window.katex.renderToString(latex, { displayMode: display, throwOnError: false });
@@ -271,6 +291,17 @@ function receive(msg) {
     // The math the tutor is talking about. It stays up until the tutor writes something new.
     $("board").hidden = false;
     $("board-math").innerHTML = tex(msg.latex, true);
+  } else if (msg?.type === "work_check") {
+    renderWork(msg);
+  } else if (msg?.type === "work_check_told") {
+    $("work-told").hidden = false;
+    $("work-told").textContent = msg.which === "previous"
+      ? "This check came after Ilumina started answering, so it got it with your next turn."
+      : "Ilumina had this check before it answered.";
+  } else if (msg?.type === "work_check_error") {
+    const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
+    $("work").innerHTML = `<p class="failed">${esc("The check of that turn failed. Ilumina answered without it." + reason)}</p>`;
+    $("work-told").hidden = true;
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
@@ -280,7 +311,10 @@ function receive(msg) {
     $("running").hidden = false;
     $("running").textContent =
       `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
-      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
+      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say${msg.work_check ? " and checks your work" : ""}.`;
+    if (msg.work_check === false && $("work").querySelector(".empty")) {
+      $("work").querySelector(".empty").textContent = "The work check is switched off for this session.";
+    }
     // The bot says which kind of session it really started.
     if (msg.mode) showMode(msg.mode);
     savesWithoutAsking = Boolean(msg.saves_without_asking);
