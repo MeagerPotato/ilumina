@@ -223,3 +223,6 @@ __marimo__/
 
 # Ilumina memory: lectures, sessions, study plans (personal, local only)
 memory/
+
+# GoPro saved frames (local only)
+gopro/captures/
