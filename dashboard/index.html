@@ -6,248 +6,337 @@
 <title>Ilumina, live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Silkscreen&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./vendor/katex/katex.min.css">
 <style>
   :root {
-    --paper: #f6f8fb; --panel: #ffffff; --ink: #14213d; --muted: #5b6780; --grid: #d9e1ec;
+    --bg: #ffffff; --panel: #ffffff; --ink: #1f2230; --muted: #6b7286; --faint: #a3a9b8;
+    --line: #e6e8ee; --wash: #f5f6f9; --shadow: #eceef3;
+    /* One fixed colour per reading, checked for colour-blind separation. */
     --confusion: #7a4fe0; --frustration: #d63a4a; --confidence: #0e9384; --engagement: #2b6fe3;
-    --warn: #a15c00;
+    --bored: #b26a00; --neutral: #8a91a3;
+    --warn: #a15c00; --live: #13867d;
+    --pixel: "Silkscreen", ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-size: 17px; line-height: 1.45;
-    /* graph paper: the page is a tutor's worksheet */
-    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 28px 28px; background-position: -1px -1px;
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 15px; line-height: 1.4;
+    font-variant-numeric: tabular-nums;
   }
-  main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
-  header { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 6px; }
-  h1 { font-size: 56px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
-  .tag { color: var(--muted); max-width: 46ch; margin: 0 0 4px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 6px 24px 40px; }
   button {
     font: inherit; font-weight: 600; color: #fff; background: var(--ink); border: 0;
-    padding: 12px 22px; border-radius: 999px; cursor: pointer;
+    padding: 10px 18px; border-radius: 0; cursor: pointer; box-shadow: 3px 3px 0 var(--shadow);
   }
-  button:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
-  button[disabled] { opacity: .55; cursor: default; }
-  .session { display: flex; align-items: center; gap: 10px 16px; margin-left: auto; flex-wrap: wrap; }
-  .status { color: var(--muted); font-size: 15px; }
-  .mic { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 15px; }
-  .mic .level { width: 72px; height: 10px; border: 1.5px solid var(--ink); border-radius: 5px; overflow: hidden; background: var(--panel); }
-  .mic .level i { display: block; height: 100%; width: 0; background: var(--confidence); transition: width .25s; }
-  .mic.silent { color: var(--warn); }
-  /* Where the conversation is right now. It stays in view while the page scrolls. */
-  .stage { position: sticky; top: 10px; z-index: 5; display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin: 14px 0 0; padding: 12px 18px; background: var(--panel); border: 1.5px solid var(--ink); border-left: 12px solid var(--muted); border-radius: 6px; }
-  .stage p { margin: 0; flex: 1 1 24ch; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
-  .stage b { display: block; color: var(--ink); font-size: 28px; font-weight: 800; line-height: 1.15; }
-  /* The hint keeps its room, so the page below does not jump while the student talks. */
-  .stage p span { display: block; min-height: 1.45em; }
+  button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--engagement); outline-offset: 3px; }
+  button[disabled] { opacity: .5; cursor: default; }
+  button.quiet { background: var(--panel); color: var(--ink); border: 2px solid var(--ink); padding: 6px 12px; box-shadow: none; }
+
+  /* Header: wordmark, where the conversation is, the mic, the session button. */
+  /* The header, with where the conversation is, stays in view while the page scrolls. */
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; align-items: center; gap: 16px 24px; flex-wrap: wrap; padding: 14px 0 16px; border-bottom: 2px solid var(--ink); }
+  .brand { display: flex; align-items: center; gap: 10px; margin: 0; font: 400 26px/1 var(--pixel); letter-spacing: .02em; }
+  .brand svg { width: 26px; height: 26px; shape-rendering: crispEdges; }
+  .stage { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 280px; }
+  .stage .dot { flex: none; width: 12px; height: 12px; background: var(--faint); }
+  .stage b { font-weight: 600; white-space: nowrap; }
+  .stage span { color: var(--muted); min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .stage[data-stage="listening"] .dot { background: var(--engagement); }
+  .stage[data-stage="hearing"] .dot { background: var(--confidence); animation: blink 1s steps(2) infinite; }
+  .stage[data-stage="thinking"] .dot { background: var(--warn); }
+  .stage[data-stage="speaking"] .dot { background: var(--confusion); }
+  .stage button { flex: none; margin-left: auto; }
   .stage button[aria-disabled="true"] { opacity: .3; cursor: default; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .stage[data-stage="listening"] { border-left-color: var(--engagement); }
-  .stage[data-stage="hearing"] { border-left-color: var(--confidence); }
-  .stage[data-stage="thinking"] { border-left-color: var(--warn); }
-  .stage[data-stage="speaking"] { border-left-color: var(--confusion); }
-  .stage.ask { position: static; border-left-color: var(--ink); }
-  button.quiet { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); padding: 10.5px 20.5px; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .session { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+  .status { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .mic { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .mic .level { display: grid; grid-template-columns: repeat(10, 5px); gap: 2px; }
+  .mic .level i { height: 12px; background: var(--line); }
+  .mic .level i.on { background: var(--live); }
+  .mic.silent { color: var(--warn); }
   /* Homework or lecture review, picked before the session starts. */
-  .mode { display: flex; border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px; margin: 0; background: var(--panel); }
-  .mode label { padding: 8px 16px; border-radius: 999px; font-weight: 600; font-size: 15px; cursor: pointer; white-space: nowrap; }
+  .mode { display: flex; border: 2px solid var(--ink); padding: 2px; margin: 0; background: var(--panel); min-width: 0; }
+  .mode label { padding: 5px 10px; font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
   .mode input { position: absolute; opacity: 0; pointer-events: none; }
   .mode label:has(input:checked) { background: var(--ink); color: #fff; }
-  .mode label:has(input:focus-visible) { outline: 3px solid var(--engagement); outline-offset: 3px; }
+  .mode label:has(input:focus-visible) { outline: 2px solid var(--engagement); outline-offset: 3px; }
   .mode:disabled label { cursor: default; }
   .mode:disabled label:not(:has(input:checked)) { opacity: .45; }
-  .mode-hint { margin: 14px 0 0; font-size: 20px; max-width: 60ch; }
+  .mode-hint { margin: 14px 0 0; color: var(--muted); font-size: 14px; max-width: 86ch; }
   body[data-mode="review"] .memory { order: -1; } /* the class being reviewed comes first */
-  .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
-  .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
-  .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
-  .stack { display: flex; flex-direction: column; gap: 20px; }
-  section { background: var(--panel); border: 1.5px solid var(--ink); border-radius: 6px; padding: 20px 22px; }
-  h2 { font-size: 20px; font-weight: 600; margin: 0 0 14px; }
-  .empty { color: var(--muted); margin: 0; }
+  /* Asked before a session ends: save what was hard, or not. */
+  .ask { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; margin: 14px 0 0; padding: 12px 16px; border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--shadow); }
+  .ask p { margin: 0; flex: 1 1 30ch; color: var(--muted); }
+  .ask p b { display: block; color: var(--ink); font-size: 18px; }
+  .problem { margin: 14px 0 0; padding: 10px 14px; border: 2px solid var(--frustration); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
 
-  .dim { display: grid; grid-template-columns: 13ch 1fr 11ch; align-items: center; gap: 14px; padding: 9px 0; }
-  .dim + .dim { border-top: 1px solid var(--grid); }
-  .dim .name { font-weight: 600; }
-  .dim .name small { display: block; font-weight: 400; color: var(--muted); font-size: 14px; }
-  .track { position: relative; height: 34px; }
-  .track::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; height: 2px; background: var(--ink); }
-  .track .zone { position: absolute; top: 9px; width: 1.5px; height: 16px; background: var(--ink); opacity: .35; }
-  .track .band { position: absolute; top: 8px; height: 18px; border-radius: 9px; opacity: .22; transition: left .5s, width .5s; }
-  .track .reading { position: absolute; top: 11px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--panel); border: 2.5px solid; transition: left .5s; }
-  .track .estimate { position: absolute; top: 3px; width: 6px; height: 28px; margin-left: -3px; border-radius: 3px; transition: left .5s; }
-  .chip { justify-self: end; font-size: 14px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1.5px solid var(--ink); white-space: nowrap; }
-  .chip.blip { border-style: dashed; color: var(--muted); border-color: var(--muted); }
-  .chip.trend { background: var(--ink); color: #fff; }
-  .key { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 14px; margin-top: 12px; }
-  .key i { display: inline-block; vertical-align: -2px; margin-right: 6px; }
-  .key .k-est { width: 5px; height: 16px; border-radius: 3px; background: var(--ink); }
-  .key .k-read { width: 11px; height: 11px; border-radius: 50%; border: 2.5px solid var(--ink); }
-  .key .k-band { width: 26px; height: 12px; border-radius: 6px; background: var(--ink); opacity: .22; }
+  /* Cards */
+  .card { background: var(--panel); border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--shadow); padding: 18px 20px; min-width: 0; }
+  .eyebrow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 14px; }
+  .eyebrow h2 { margin: 0; font: 400 13px/1 var(--pixel); letter-spacing: .06em; text-transform: uppercase; }
+  .eyebrow small { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--faint); margin: 0; }
 
-  .note { margin: 0 0 14px; padding: 10px 12px; border-left: 4px solid var(--ink); background: var(--paper); font-size: 15.5px; }
-  .note.stale { border-color: var(--warn); color: var(--warn); }
-  .move { margin: 0 0 14px; font-size: 20px; }
-  .move b { font-weight: 800; }
-  /* The one dark surface on the page: what the tutor has written up, like a board. */
-  .board { margin: 0 0 14px; padding: 12px 16px 16px; border-radius: 6px; background: var(--ink); color: #fff; overflow-x: auto; }
-  .board h3 { font-size: 14px; font-weight: 400; margin: 0 0 6px; opacity: .7; }
-  .board .math { font-size: 21px; }
+  /* The loop: what was heard, how it was read, what the tutor did. */
+  .loop { display: grid; grid-template-columns: minmax(0, 4fr) 28px minmax(0, 5fr) 28px minmax(0, 4fr); align-items: stretch; margin-top: 22px; }
+  .arrow { display: grid; place-items: center; color: var(--faint); }
+  .arrow svg { width: 14px; height: 14px; shape-rendering: crispEdges; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; margin: 0; }
+  .stats div { display: flex; flex-direction: column-reverse; justify-content: flex-end; }
+  .stats dt { color: var(--muted); font-size: 12px; }
+  .stats dd { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; }
+  .stats dd.none { color: var(--faint); }
+  .spoke { color: var(--muted); font-size: 12px; margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+  .spoke + .spoke { margin-top: 4px; padding-top: 0; border-top: 0; }
+  .stats dd small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+
+  .headline { margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .headline .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .headline #state-name { --c: var(--muted); font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; text-transform: capitalize; display: inline-flex; align-items: center; gap: 9px; }
+  .headline #state-name::before { content: ""; width: 14px; height: 14px; background: var(--c); }
+  .headline #state-meta { color: var(--muted); font-size: 13px; }
+  .dist { display: flex; gap: 2px; height: 8px; margin-top: 10px; }
+  .dist i { min-width: 2px; }
+  .usual { margin: 16px 0 0; }
+  .usual h3 { margin: 0 0 8px; font: 400 11px/1 var(--pixel); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips span { font-size: 13px; padding: 3px 8px; background: var(--wash); border: 1px solid var(--line); }
+  .chips span b { font-weight: 700; }
+  .chips span.soft { color: var(--muted); }
+  .dims { display: grid; gap: 12px; }
+  .dim { display: grid; grid-template-columns: 116px minmax(0, 1fr) 84px; grid-template-areas: "name track level"; align-items: center; gap: 12px; }
+  .dim .track { grid-area: track; }
+  .dim .name { grid-area: name; font-weight: 600; text-transform: capitalize; display: flex; align-items: center; gap: 7px; }
+  .dim .name i { width: 8px; height: 8px; flex: none; }
+  .dim .level { grid-area: level; justify-self: end; font-size: 13px; font-weight: 600; text-transform: capitalize; display: flex; align-items: center; gap: 5px; }
+  .dim .level em { font-style: normal; font-size: 11px; font-weight: 600; padding: 1px 5px; }
+  .dim .level em.trend { background: var(--ink); color: #fff; }
+  .dim .level em.blip { border: 1px dashed var(--faint); color: var(--muted); }
+  /* Track: low | medium | high, a bar to the smoothed estimate, a square at this turn's reading,
+     and a faint band that is wider when the model was less sure. */
+  .track { position: relative; height: 22px; background: var(--wash); }
+  .track .zone { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bg); }
+  .track .band { position: absolute; top: 0; bottom: 0; opacity: .14; transition: left .5s, width .5s; }
+  .track .fill { position: absolute; left: 0; top: 7px; height: 8px; transition: width .5s; }
+  .track .reading { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; background: var(--bg); border: 3px solid; transition: left .5s; }
+  .dim.blip .track .reading { border-style: dashed; }
+  .scale { display: grid; grid-template-columns: 116px minmax(0, 1fr) 84px; gap: 12px; margin-top: 6px; }
+  .scale span { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; grid-column: 2; }
+  .key { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .key i { display: inline-block; vertical-align: -1px; margin-right: 5px; }
+  .key .k-fill { width: 16px; height: 6px; background: var(--ink); vertical-align: 1px; }
+  .key .k-read { width: 10px; height: 10px; border: 2px solid var(--ink); }
+  .key .k-band { width: 16px; height: 10px; background: var(--ink); opacity: .14; }
+
+  .move { font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; margin: 0; }
+  .move.none { color: var(--faint); font-weight: 500; font-size: 17px; }
+  .why { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .board { margin: 16px 0 0; padding: 12px 14px; background: var(--ink); color: #fff; overflow-x: auto; }
+  .board .math { font-size: 20px; }
   .board .katex-display { margin: 0; text-align: left; }
   .board .katex-display > .katex { text-align: left; }
-  .lines { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
-  .lines li { padding: 6px 0; border-top: 1px solid var(--grid); }
-  .lines li b { font-weight: 600; }
+  details { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; }
+  details p { margin: 6px 0 0; padding: 8px 10px; background: var(--wash); color: var(--ink); }
+  details p.stale { color: var(--warn); }
 
-  .camera { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
-  .camera .view { aspect-ratio: 4 / 3; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--paper); overflow: hidden; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+  /* Over the session */
+  .trace { margin-top: 22px; position: relative; }
+  .trace svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .trace text { font-family: Inter, sans-serif; fill: var(--muted); font-size: 12px; }
+  .trace text.row { fill: var(--ink); font-weight: 600; font-size: 13px; text-transform: capitalize; }
+  .trace .col { fill: transparent; }
+  .trace .col:hover, .trace .col.on { fill: var(--wash); }
+  .tip { position: absolute; pointer-events: none; background: var(--ink); color: #fff; font-size: 12px; padding: 8px 10px; min-width: 170px; z-index: 3; }
+  .tip b { display: block; font: 400 11px/1.4 var(--pixel); letter-spacing: .05em; margin-bottom: 4px; }
+  .tip div { display: flex; justify-content: space-between; gap: 12px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  .legend i { display: inline-block; vertical-align: -1px; margin-right: 5px; width: 9px; height: 9px; }
+  .legend i.hollow { border: 2px dashed var(--muted); }
+  .legend i.line { width: 16px; height: 2px; background: var(--muted); vertical-align: 3px; }
+  .legend i.move { background: var(--ink); }
+
+  /* The check of the step the student just gave: the verdict, then what, where and what next. */
+  .work { margin-top: 22px; }
+  .work #work { display: flex; align-items: flex-start; gap: 14px 36px; flex-wrap: wrap; }
+  .work .verdict { --c: var(--muted); margin: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .work .verdict b { font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; display: inline-flex; align-items: center; gap: 9px; }
+  .work .verdict b::before { content: ""; width: 14px; height: 14px; background: var(--c); }
+  .work .verdict[data-verdict="mistake"] { --c: var(--frustration); }
+  .work .verdict[data-verdict="correct"] { --c: var(--confidence); }
+  .work .verdict span { color: var(--muted); font-size: 13px; }
+  .work dl { display: flex; gap: 12px 32px; flex-wrap: wrap; margin: 0; flex: 1 1 420px; }
+  .work dl div { display: grid; grid-template-columns: auto auto; justify-content: start; column-gap: 8px; align-items: baseline; }
+  .work dt { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .work dd { margin: 0; font-weight: 600; }
+  .work dd + dd { font-weight: 400; color: var(--muted); font-size: 13px; }
+  .work .scored { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
+  .work #work-told { margin-top: 6px; }
+  .work .failed { margin: 0; color: var(--warn); font-weight: 600; overflow-wrap: anywhere; }
+  .memory .kept { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+
+  /* Secondary row */
+  .more { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); gap: 20px; margin-top: 22px; }
+  .lines { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; font-size: 14px; }
+  .lines li { padding: 6px 0; border-top: 1px solid var(--line); }
+  .lines li:first-child { border-top: 0; }
+  .lines li b { font-weight: 600; margin-right: 6px; }
+  .lines li.me b { color: var(--engagement); }
+  .camera .view { aspect-ratio: 4 / 3; max-height: 230px; width: 100%; background: var(--wash); overflow: hidden; display: grid; place-items: center; color: var(--faint); font-size: 13px; }
   .camera video, .camera img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .camera img { object-fit: contain; } /* the whole frame the tutor gets, not a crop */
-  .camera p { margin: 0 0 12px; }
-  .camera .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  .camera button { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); padding: 8px 16px; }
-  .camera select { font: inherit; font-size: 15px; color: var(--ink); background: var(--panel); border: 1.5px solid var(--ink); border-radius: 6px; padding: 7px 8px; max-width: 100%; }
-  .camera select:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
-  .seen { color: var(--muted); font-size: 15px; }
-  .scored { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
-  .measured { margin: 18px 0 0; padding-top: 14px; border-top: 1.5px solid var(--ink); }
-  .measured h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
-  .measured dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px 18px; margin: 0; }
-  .measured dl div { display: flex; flex-direction: column-reverse; justify-content: flex-end; } /* number on top, tops level */
-  .measured dt { color: var(--muted); font-size: 14px; }
-  .measured dd { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
-  .running { color: var(--muted); font-size: 15px; margin: 20px 0 0; max-width: 78ch; }
-
-  /* The check of the student's last step: the verdict, then what, where and what next. */
-  .work .verdict { margin: 0 0 6px; padding: 8px 12px; border-left: 8px solid var(--muted); background: var(--paper); display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; }
-  .work .verdict b { font-size: 24px; font-weight: 800; line-height: 1.2; }
-  .work .verdict span { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
-  .work .verdict[data-verdict="mistake"] { border-left-color: var(--frustration); }
-  .work .verdict[data-verdict="correct"] { border-left-color: var(--confidence); }
-  .work dl { margin: 0; }
-  .work dl div { display: grid; grid-template-columns: 15ch 1fr auto; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--grid); }
-  .work dt { color: var(--muted); font-size: 15px; }
-  .work dd { margin: 0; font-weight: 600; }
-  .work dd + dd { font-weight: 400; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
-  .work .failed { margin: 0; color: var(--warn); font-weight: 600; overflow-wrap: anywhere; }
-
-  .memory .class { margin: 0 0 12px; }
+  .camera .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .camera select { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 2px solid var(--ink); padding: 5px 6px; max-width: 100%; }
+  .seen { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .memory .class { margin: 0 0 10px; font-size: 14px; }
   .memory .class b { font-weight: 600; }
-  .memory .class > span { display: block; color: var(--muted); font-size: 15px; }
-  .memory h3 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; padding-top: 14px; border-top: 1.5px solid var(--ink); }
-  .memory .plan { max-height: 280px; overflow: auto; font-size: 15.5px; }
-  .memory .plan h4 { font-size: 15.5px; font-weight: 800; margin: 12px 0 4px; }
+  .memory .class > span { display: block; color: var(--muted); font-size: 13px; }
+  .memory h3 { font: 400 11px/1 var(--pixel); letter-spacing: .06em; text-transform: uppercase; margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .memory .plan { max-height: 200px; overflow: auto; font-size: 13px; }
+  .memory .plan h4 { font-size: 13px; font-weight: 700; margin: 10px 0 2px; }
   .memory .plan h4:first-child { margin-top: 0; }
-  .memory .plan p { margin: 0 0 6px; }
-  .memory .plan ul { margin: 0 0 8px; padding-left: 20px; }
-  .memory .kept { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+  .memory .plan p { margin: 0 0 4px; }
+  .memory .plan ul { margin: 0 0 6px; padding-left: 18px; }
 
-  .trace { margin-top: 20px; }
-  .trace svg { width: 100%; height: auto; display: block; }
-  .trace text { font-family: inherit; fill: var(--muted); font-size: 13px; }
-  .trace text.dimname { fill: var(--ink); font-weight: 600; font-size: 14px; }
+  footer { display: flex; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 
-  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } h1 { font-size: 40px; } }
-  @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } .work dl div { grid-template-columns: 1fr auto; } .work dt { grid-column: 1 / -1; } .stage p span { min-height: 4.35em; } }
-  @media (prefers-reduced-motion: reduce) { .track *, .mic .level i { transition: none !important; } }
+  @media (max-width: 980px) {
+    .loop { grid-template-columns: 1fr; gap: 0; }
+    .arrow { height: 26px; transform: rotate(90deg); }
+    .more { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 520px) {
+    main { padding: 16px 16px 32px; }
+    .dim { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name level" "track track"; gap: 6px 8px; }
+    .scale { grid-template-columns: minmax(0, 1fr); }
+    .scale span { grid-column: 1; }
+    .trace #trace { overflow-x: auto; }
+    .trace svg { min-width: 680px; }
+    .camera .view { aspect-ratio: 16 / 9; }
+    .stats dd { font-size: 26px; }
+    .session { margin-left: 0; width: 100%; justify-content: space-between; flex-wrap: wrap; }
+    .stage { flex-wrap: wrap; }
+    .stage span { flex-basis: 100%; order: 3; }
+  }
+  @media (prefers-reduced-motion: reduce) { .track *, .stage .dot { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Ilumina</h1>
-    <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
+    <h1 class="brand">
+      <svg viewBox="0 0 13 13" aria-hidden="true"><path fill="#ffd84d" d="M5 0h3v3H5zM0 5h3v3H0zM10 5h3v3h-3zM5 10h3v3H5z"/><path fill="#1f2230" d="M4 3h5v1h1v5H9v1H4V9H3V4h1z"/><path fill="#ffffff" d="M5 5h1v1H5z"/></svg>
+      ilumina
+    </h1>
+    <div class="stage" id="stage" hidden>
+      <i class="dot"></i><b id="stage-name"></b><span id="stage-hint"></span>
+      <button class="quiet" id="done" aria-disabled="true">Done talking</button>
+      <span class="sr" id="stage-say" role="status"></span>
+    </div>
     <div class="session">
       <fieldset class="mode" id="mode" aria-label="Kind of session" aria-describedby="mode-hint">
         <label><input type="radio" name="mode" value="homework" checked>Homework</label>
         <label><input type="radio" name="mode" value="review">Lecture review</label>
       </fieldset>
-      <span class="mic" id="mic" hidden><span class="level" role="img" aria-label="Microphone level"><i id="mic-fill"></i></span><span id="mic-text"></span></span>
+      <span class="mic" id="mic" hidden><span class="level" id="mic-level" role="img" aria-label="Microphone level"></span><span id="mic-text"></span></span>
       <span class="status" id="band" role="status" hidden></span>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>
   </header>
-  <p class="mode-hint" id="mode-hint"></p>
   <p class="problem" id="problem" role="alert" hidden></p>
-  <div class="stage" id="stage" hidden>
-    <p><b id="stage-name"></b><span id="stage-hint"></span></p>
-    <button id="done" aria-disabled="true">Done talking</button>
-    <span class="sr" id="stage-say" role="status"></span>
-  </div>
-  <div class="stage ask" id="ask" role="group" aria-labelledby="ask-title" aria-describedby="ask-text" hidden>
+  <p class="mode-hint" id="mode-hint"></p>
+  <div class="ask" id="ask" role="group" aria-labelledby="ask-title" aria-describedby="ask-text" hidden>
     <p><b id="ask-title">Save what was hard?</b><span id="ask-text"></span></p>
     <button id="ask-save">Save and end</button>
     <button id="ask-skip" class="quiet">End without saving</button>
   </div>
-  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. It also checks each step you give for mistakes. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.<span id="band-consent" hidden> From your Vexo band, Ilumina only reads double taps and sets its light. The band's microphone stays off in a session.</span></p>
 
-  <div class="cols">
-    <div class="stack">
-    <section aria-labelledby="now-h">
-      <h2 id="now-h">How you sound right now</h2>
-      <div id="dims"><p class="empty">No readings yet. Start a session and say something.</p></div>
+  <div class="loop">
+    <section class="card" aria-labelledby="heard-h">
+      <div class="eyebrow"><h2 id="heard-h">1 · Heard</h2><small>last turn, Deepgram</small></div>
+      <dl class="stats" id="evidence">
+        <div><dt>words a minute</dt><dd class="none">–</dd></div>
+        <div><dt>longest pause</dt><dd class="none">–</dd></div>
+        <div><dt>ums and uhs</dt><dd class="none">–</dd></div>
+        <div><dt>wait before answering</dt><dd class="none">–</dd></div>
+      </dl>
+      <div class="usual" id="usual" hidden><h3>vs. their usual</h3><div class="chips" id="usual-chips"></div></div>
+      <p class="spoke" id="spoke" hidden></p>
+      <p class="spoke" id="pitch" hidden></p>
+    </section>
+    <div class="arrow" aria-hidden="true"><svg viewBox="0 0 7 7"><path fill="currentColor" d="M0 0h2v1h1v1h1v1h1v1H4v1H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0z"/></svg></div>
+    <section class="card" aria-labelledby="read-h">
+      <div class="eyebrow"><h2 id="read-h">2 · Read</h2><small id="scored">how they sound</small></div>
+      <div class="headline" id="headline" hidden>
+        <div class="top"><span id="state-name"></span><span id="state-meta"></span></div>
+        <div class="dist" id="state-dist" role="img"></div>
+      </div>
+      <div class="dims" id="dims"><p class="empty">Start a session and say something.</p></div>
+      <div class="scale" id="scale" hidden><span><b>low</b><b>medium</b><b>high</b></span></div>
       <div class="key" id="key" hidden>
-        <span><i class="k-est"></i>smoothed estimate</span>
-        <span><i class="k-read"></i>this turn's reading</span>
-        <span><i class="k-band"></i>wider means less sure</span>
-      </div>
-      <div class="measured" id="measured" hidden>
-        <h3>Measured by Deepgram on your last turn</h3>
-        <dl id="evidence"></dl>
-      </div>
-      <p class="scored" id="scored" hidden></p>
-    </section>
-    <section aria-labelledby="cam-h">
-      <h2 id="cam-h">What Ilumina sees</h2>
-      <div class="camera">
-        <div class="view">
-          <span id="cam-off">Camera is off</span>
-          <video id="cam-video" autoplay muted playsinline hidden></video>
-          <img id="cam-img" alt="What the head camera sees right now" hidden>
-        </div>
-        <div>
-          <p id="cam-hint">Point a camera at your page so Ilumina can read the problem and your working.</p>
-          <div class="controls">
-            <button id="cam-toggle" disabled>Turn camera on</button>
-            <select id="cam-pick" aria-label="Which camera" hidden></select>
-          </div>
-          <p class="seen" id="cam-seen" role="status">Start a session to use the camera.</p>
-        </div>
+        <span><i class="k-fill"></i>smoothed</span>
+        <span><i class="k-read"></i>this turn</span>
+        <span><i class="k-band"></i>model's doubt</span>
       </div>
     </section>
-    </div>
-    <div class="stack">
-    <section aria-labelledby="talk-h">
-      <h2 id="talk-h">What Ilumina was told, and what it chose</h2>
-      <p class="note" id="note">Nothing yet. Ilumina gets a one-line summary before each reply.</p>
-      <p class="move" id="move" hidden>Ilumina chose: <b id="move-name"></b></p>
-      <div class="board" id="board" hidden><h3>On the board</h3><div class="math" id="board-math"></div></div>
-      <ul class="lines" id="lines" aria-live="polite"></ul>
+    <div class="arrow" aria-hidden="true"><svg viewBox="0 0 7 7"><path fill="currentColor" d="M0 0h2v1h1v1h1v1h1v1H4v1H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0z"/></svg></div>
+    <section class="card" aria-labelledby="adapt-h">
+      <div class="eyebrow"><h2 id="adapt-h">3 · Adapted</h2><small>tutor's move</small></div>
+      <p class="move none" id="move">Waiting for a reply</p>
+      <p class="why" id="why" hidden></p>
+      <div class="board" id="board" hidden><div class="math" id="board-math"></div></div>
+      <details id="note-box" hidden><summary>What the tutor was told</summary><p id="note"></p></details>
     </section>
-    <section class="work" aria-labelledby="work-h">
-      <h2 id="work-h">Your last step, checked</h2>
-      <div id="work" aria-live="polite"><p class="empty">No check yet. Ilumina checks each step you give: is it right, what kind of mistake, where, and what to do next.</p></div>
-      <p class="scored" id="work-told" role="status" hidden></p>
-    </section>
-    <section class="memory" aria-labelledby="mem-h">
-      <h2 id="mem-h">What Ilumina remembers</h2>
-      <div id="memory"><p class="empty">Start a session to see what Ilumina remembers from your classes.</p></div>
-    </section>
-    </div>
   </div>
 
-  <section class="trace" aria-labelledby="trace-h">
-    <h2 id="trace-h">Across the session</h2>
-    <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ilumina ignored.</p></div>
+  <section class="card work" aria-labelledby="work-h">
+    <div class="eyebrow"><h2 id="work-h">Checked</h2><small>the step they just gave, Decision 1</small></div>
+    <div id="work" aria-live="polite"><p class="empty">No check yet. Each step the student gives is checked: is it right, what kind of mistake, where, and what to do next.</p></div>
+    <p class="scored" id="work-told" role="status" hidden></p>
   </section>
-  <p class="running" id="running" hidden></p>
+
+  <section class="card trace" aria-labelledby="trace-h">
+    <div class="eyebrow"><h2 id="trace-h">Over the session</h2>
+      <span class="legend"><span><i class="line"></i>smoothed</span><span><i style="background:var(--muted)"></i>turn reading</span><span><i class="hollow"></i>blip, ignored</span><span><i class="move"></i>tutor move</span></span>
+    </div>
+    <div id="trace"><p class="empty">Each turn adds a column.</p></div>
+    <div class="tip" id="tip" hidden></div>
+  </section>
+
+  <div class="more">
+    <section class="card" aria-labelledby="talk-h">
+      <div class="eyebrow"><h2 id="talk-h">Conversation</h2></div>
+      <ul class="lines" id="lines" aria-live="polite"><li class="empty" id="lines-empty">Nothing said yet.</li></ul>
+    </section>
+    <section class="card camera" aria-labelledby="cam-h">
+      <div class="eyebrow"><h2 id="cam-h">Camera</h2><small id="cam-hint">optional</small></div>
+      <div class="view">
+        <span id="cam-off">Off</span>
+        <video id="cam-video" autoplay muted playsinline hidden></video>
+        <img id="cam-img" alt="What the head camera sees right now" hidden>
+      </div>
+      <div class="controls">
+        <button class="quiet" id="cam-toggle" disabled>Turn camera on</button>
+        <select id="cam-pick" aria-label="Which camera" hidden></select>
+      </div>
+      <p class="seen" id="cam-seen" role="status">Start a session to use the camera.</p>
+    </section>
+    <section class="card memory" aria-labelledby="mem-h">
+      <div class="eyebrow"><h2 id="mem-h">Remembers</h2><small>from class</small></div>
+      <div id="memory"><p class="empty">Nothing loaded yet.</p></div>
+    </section>
+  </div>
+
+  <footer>
+    <span>Estimates of how the student sounds, not facts about how they feel. Each step is also checked for mistakes. Audio and pictures are not saved.<span id="band-consent" hidden> From the Vexo band, only double taps are read. Its microphone stays off in a session.</span></span>
+    <span id="running"></span>
+  </footer>
   <audio id="bot-audio" autoplay></audio>
 </main>
 <script src="./vendor/katex/katex.min.js"></script>

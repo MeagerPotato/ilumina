@@ -7,6 +7,18 @@ and Decision 1 gets them as one line next to the audio.
 from itertools import pairwise
 
 _FILLERS = frozenset({"um", "umm", "uh", "uhh", "er", "erm", "hmm", "mm"})
+# Hedges: the words students use when they are not sure. In spoken tutoring, hedged
+# and question-like answers go with uncertainty (Liscombe et al. 2005; Forbes-Riley
+# and Litman). Counted as phrases of one to three words.
+_HEDGES = frozenset(
+    {
+        ("maybe",), ("probably",), ("perhaps",), ("guess",), ("dunno",),
+        ("i", "think"), ("not", "sure"), ("kind", "of"), ("sort", "of"),
+        ("i", "dont", "know"), ("no", "idea"),
+    }
+)  # fmt: skip
+# Gaps between words shorter than this are part of normal speech, not silence.
+_SILENT_GAP_SECONDS = 0.25
 # Below this a pace is noise: "yes, four" is not fast or slow speech.
 _MIN_WORDS_FOR_PACE, _MIN_SECONDS_FOR_PACE = 3, 1.0
 
@@ -36,6 +48,7 @@ def voice_evidence(result: dict | None, waited: float | None = None) -> dict | N
     seconds = words[-1]["end"] - words[0]["start"]
     pauses = [later["start"] - earlier["end"] for earlier, later in pairwise(words)]
     paced = len(words) >= _MIN_WORDS_FOR_PACE and seconds >= _MIN_SECONDS_FOR_PACE
+    silence = sum(p for p in pauses if p >= _SILENT_GAP_SECONDS)
     return {
         "words": len(words),
         "seconds": round(seconds, 1),
@@ -43,7 +56,25 @@ def voice_evidence(result: dict | None, waited: float | None = None) -> dict | N
         "longest_pause": round(max([0.0, *pauses]), 1),
         "fillers": sum(_letters(w["word"]) in _FILLERS for w in words),
         "waited": None if waited is None else round(waited, 1),
+        # Added: all the silence inside the turn, which predicted uncertainty best in
+        # Pon-Barry and Shieber (2011), and hedges such as "maybe" or "I think".
+        "silence": round(silence, 1),
+        "silence_share": round(silence / seconds, 2) if seconds > 0 else 0.0,
+        "hedges": _count_hedges([_letters(w["word"]) for w in words]),
     }
+
+
+def _count_hedges(words: list[str]) -> int:
+    count, i = 0, 0
+    while i < len(words):
+        for size in (3, 2, 1):
+            if tuple(words[i : i + size]) in _HEDGES:
+                count += 1
+                i += size
+                break
+        else:
+            i += 1
+    return count
 
 
 def describe_evidence(evidence: dict) -> str:
@@ -53,7 +84,11 @@ def describe_evidence(evidence: dict) -> str:
     if evidence["words_per_minute"] is not None:
         parts[0] += f" ({evidence['words_per_minute']} words a minute)"
     parts.append(f"longest pause between words {evidence['longest_pause']} seconds")
+    if evidence.get("silence") is not None:
+        parts.append(f"silent for {evidence['silence']} seconds in all inside the answer")
     parts.append(f"filler words such as um or uh: {evidence['fillers']}")
+    if evidence.get("hedges") is not None:
+        parts.append(f"hedges such as maybe or I think: {evidence['hedges']}")
     if evidence["waited"] is not None:
         parts.append(f"started answering {evidence['waited']} seconds after the tutor finished")
     return "Measured from this turn's audio by Deepgram: " + ", ".join(parts) + "."

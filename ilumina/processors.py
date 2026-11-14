@@ -230,17 +230,17 @@ class StudentStateInjector(FrameProcessor):
     If the reading is late or missing, the tutor answers without a new note,
     so voice never blocks on emotion.
 
-    With `expect_work_check`, the same short wait also covers the check of the
-    student's work, and its note is added too. A check that comes too late for its
-    own turn is given with the next one and says so.
+    With `work_check_wait_seconds`, it waits that long, at the same time, for the
+    check of the student's work, and adds its note too. A check that comes too late
+    for its own turn is given with the next one and says so.
     """
 
-    def __init__(self, wait_seconds: float, expect_work_check: bool = False, **kwargs):
+    def __init__(self, wait_seconds: float, work_check_wait_seconds: float = 0, **kwargs):
         super().__init__(**kwargs)
         self._wait_seconds = wait_seconds
         self._fresh = asyncio.Event()
         self._snapshot: dict | None = None
-        self._expect_work_check = expect_work_check
+        self._work_wait_seconds = work_check_wait_seconds
         self._work_fresh = asyncio.Event()
         self._work: tuple[float, dict] | None = None  # (when the check started, the check)
         self._answered_at = 0.0  # when the last student turn went on to the tutor
@@ -258,15 +258,18 @@ class StudentStateInjector(FrameProcessor):
             self._work_fresh.set()
 
     async def _wait_for_notes(self):
-        waits = [self._fresh.wait()]
-        if self._expect_work_check:
+        async def within(event: asyncio.Event, seconds: float):
+            try:
+                await asyncio.wait_for(event.wait(), seconds)
+            except TimeoutError:
+                pass
+
+        waits = [within(self._fresh, self._wait_seconds)]
+        if self._work_wait_seconds:
             if not (self._work and self._work[0] > self._answered_at):
                 self._work_fresh.clear()  # what is here, if anything, is an earlier turn's
-            waits.append(self._work_fresh.wait())
-        try:
-            await asyncio.wait_for(asyncio.gather(*waits), self._wait_seconds)
-        except TimeoutError:
-            pass
+            waits.append(within(self._work_fresh, self._work_wait_seconds))
+        await asyncio.gather(*waits)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)

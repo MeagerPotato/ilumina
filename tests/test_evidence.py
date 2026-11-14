@@ -41,6 +41,9 @@ def test_pace_pause_and_fillers_come_from_the_word_timings():
         "longest_pause": 2.0,
         "fillers": 2,
         "waited": 3.1,
+        "silence": 4.0,
+        "silence_share": 0.67,
+        "hedges": 2,  # "I think" and "maybe"
     }
 
 
@@ -202,3 +205,11 @@ def test_audio_the_meter_cannot_read_still_reaches_speech_to_text():
     odd = InputAudioRawFrame(audio=b"\x01\x02\x03", sample_rate=16000, num_channels=1)
     _, out = run_frames([odd], clock=[0.0], kind=MicLevel)
     assert out == [odd]
+
+
+def test_hedges_and_silence_are_counted():
+    turn = flux_turn(("I", 0.0, 0.1), ("dont", 0.2, 0.4), ("know,", 0.5, 0.7),
+                     ("sort", 1.5, 1.7), ("of", 1.8, 1.9), ("five", 2.0, 2.3))  # fmt: skip
+    evidence = voice_evidence(turn)
+    assert evidence["hedges"] == 2  # "I dont know" and "sort of"
+    assert evidence["silence"] == 0.8  # the one gap of 0.25 s or more

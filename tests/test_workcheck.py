@@ -103,14 +103,14 @@ def test_the_camera_picture_becomes_a_jpeg():
     assert view.jpeg()[:2] == b"\xff\xd8"
 
 
-def run_turns(steps: list, expect_work_check: bool = True) -> tuple[list[str], list[str]]:
+def run_turns(steps: list) -> tuple[list[str], list[str]]:
     """Feed student turns through the injector. A callable step runs first with the injector.
 
     Returns (the developer notes added per turn, joined, and what the dashboard was told).
     """
 
     async def go():
-        injector = StudentStateInjector(wait_seconds=0.05, expect_work_check=expect_work_check)
+        injector = StudentStateInjector(wait_seconds=0.02, work_check_wait_seconds=0.05)
         told = []
 
         async def capture(frame, direction=FrameDirection.DOWNSTREAM):

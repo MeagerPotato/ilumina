@@ -1,7 +1,9 @@
 """Ilumina: Ilumina, an emotionally aware voice tutor.
 
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
-Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
+Emotion path: each student turn's audio, its measured voice features and how they
+              compare with the student's usual -> Gemini Decision 1 -> StateTracker
+              (Bayesian smoothing with per-state persistence)
               -> a state note for the tutor and a live message for the dashboard
 Work check:   the same audio, the last lines and the camera picture -> Gemini Decision 1
               -> is the step right, what kind of mistake, where, and what to do next
@@ -62,8 +64,9 @@ from pipecat.transports.base_transport import (
 from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config, memory
+from ilumina.baseline import SpeakerBaseline
 from ilumina.emotion import score_turn
-from ilumina.evidence import describe_evidence
+from ilumina.measured import measure_turn
 from ilumina.processors import (
     BandLight,
     CameraView,
@@ -79,7 +82,7 @@ from ilumina.prompts import (
     review_greeting,
     review_note,
 )
-from ilumina.state import StateTracker, describe
+from ilumina.state import LearningStateTracker, StateTracker, describe
 from ilumina.workcheck import check_work
 
 
@@ -181,9 +184,12 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     # Emotion path
     decisions_client = genai.Client(api_key=config.GOOGLE_API_KEY)
     tracker = StateTracker()
+    learning_tracker = LearningStateTracker()
+    baseline = SpeakerBaseline()  # this student's usual voice, for this session only
     voice_evidence = VoiceEvidence()
     state_injector = StudentStateInjector(
-        wait_seconds=config.STATE_WAIT_SECONDS, expect_work_check=config.WORK_CHECK
+        wait_seconds=config.STATE_WAIT_SECONDS,
+        work_check_wait_seconds=config.WORK_CHECK_WAIT_SECONDS if config.WORK_CHECK else 0,
     )
     camera_view = CameraView(headcam=headcam)
     work_checks = set()  # checks still running, held here so none is dropped part-way
@@ -262,12 +268,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 task.add_done_callback(work_checks.discard)
             evidence = voice_evidence.take()
             started = time.monotonic()
-            readings = await score_turn(
+            # A few milliseconds of numpy; off the event loop so audio keeps flowing.
+            measured = await asyncio.to_thread(measure_turn, wav, evidence, baseline)
+            readings, learning = await score_turn(
                 decisions_client,
                 config.DECISION_MODEL,
                 wav,
                 recent_text(context),
-                describe_evidence(evidence) if evidence else "",
+                measured["text"],
             )
             scored_ms = round((time.monotonic() - started) * 1000)
         except Exception as e:  # noqa: BLE001 - any emotion failure must not stop the voice loop
@@ -278,7 +286,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             return
         if not readings:
             return
-        snapshot = tracker.update(readings)
+        snapshot = tracker.update(readings, weight=measured["weight"])
+        if learning:
+            learning_state = learning_tracker.update(learning, weight=measured["weight"])
+            if learning_state:
+                snapshot["learning_state"] = learning_state
         struggling = [
             name
             for name in ("confusion", "frustration")
@@ -298,6 +310,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "scored_ms": scored_ms,
                     # So the dashboard knows whether there is anything to ask about saving.
                     "hard_moments": len(hard_moments),
+                    # Measured, not judged: voice features of this turn, clear changes
+                    # from the student's usual, and how much this turn counted (0 to 1).
+                    "voice": measured["voice"],
+                    "vs_usual": measured["vs_usual"],
+                    "weight": measured["weight"],
                     **snapshot,
                 }
             )

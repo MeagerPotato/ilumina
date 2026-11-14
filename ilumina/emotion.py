@@ -19,7 +19,9 @@ _SCALE_NOTE = (
     "together: how they sound (tone, pace, pauses, sighs, energy) and what they say, read "
     "against the conversation (does it answer the tutor's last question, do they hedge, ask "
     "for a repeat, or say they are lost). When the voice and the words disagree, let neither "
-    "decide alone."
+    "decide alone. People differ in how they normally speak, so where the measurements say "
+    "how this turn compares with the student's usual, weigh that change more than the raw "
+    "numbers."
 )
 
 # The turn's own words may or may not have reached the conversation text when the audio
@@ -29,31 +31,44 @@ _CONTEXT_NOTE = (
     "newest turn. Its words may already be the last Student line here."
 )
 
-# Each rubric runs from level 0 (none) to level 4 (very strong).
+# Each rubric runs from level 0 (none) to level 4 (very strong). The scale is kept
+# linear because Decision 1's score is the probability-weighted average level.
+# Wording draws on the BROMP coding manual (Ocumpaugh, Baker and Rodrigo) and on the
+# spoken-tutoring uncertainty studies in docs/emotion-research.md: hedges, answers
+# spoken as questions and silences inside the answer are the strongest signs.
 RUBRICS: dict[str, list[str]] = {
     "confusion": [
-        "Clearly understands. Answers directly and correctly paced.",
-        "Mostly follows, with a brief hesitation.",
-        "Unsure. Hedges, asks for a repeat, or trails off.",
-        "Confused. Guessing, contradicting themselves, or long pauses.",
-        "Lost. Says they do not understand or cannot start.",
+        "Clearly follows. Answers the tutor's question directly, without hedging.",
+        "Mostly follows, with one brief hesitation or a quick self-correction.",
+        (
+            "Unsure. Hedges such as 'I think' or 'maybe', answers as a question, asks for a "
+            "repeat, or trails off."
+        ),
+        (
+            "Confused. Stuck: guessing, contradicting themselves, or long silences before or "
+            "inside the answer."
+        ),
+        "Lost. Says they do not understand, cannot start, or asks to go back.",
     ],
     "frustration": [
         "Calm and relaxed.",
         "Slight impatience or a small sigh.",
         "Noticeably tense, clipped, or flat.",
-        "Frustrated. Sighing, sharp tone, or self-criticism.",
-        "Very frustrated. Wants to give up or is upset.",
+        (
+            "Frustrated. Sighing, a sharp or strained tone, a tense laugh, or self-criticism "
+            "such as 'I'm so bad at this'."
+        ),
+        "Very frustrated. Wants to give up, or is upset or annoyed with the work.",
     ],
     "confidence": [
         "No confidence. Barely audible or refuses to try.",
-        "Low confidence. Many hedges such as 'maybe' or 'I think'.",
+        "Low confidence. Many hedges, or the answer rises at the end like a question.",
         "Moderate. Tries an answer but checks for approval.",
         "Confident. Clear, steady answer.",
         "Very confident. Fast, fluent, and explains their reasoning.",
     ],
     "engagement": [
-        "Checked out. Minimal or off-topic reply.",
+        "Checked out. Minimal, flat or off-topic reply; sounds bored with the task.",
         "Low. Short answers and little energy.",
         "Moderate. Follows along and responds.",
         "Engaged. Asks questions or builds on the idea.",
@@ -61,9 +76,25 @@ RUBRICS: dict[str, list[str]] = {
     ],
 }
 
+# One categorical question beside the four scores: which learning-centred state
+# the turn shows, with the definitions BROMP observers use. Questions are scored
+# independently, so this does not change the four scores.
+LEARNING_STATE_QUESTION = "learning_state"
+LEARNING_STATE_CRITERIA: dict[str, str] = {
+    "engaged": "Engaged concentration: focused on the problem and working on it.",
+    "confused": "Confusion: having difficulty understanding. Unsure, hedging, asking for "
+    "help or an explanation, or stuck.",
+    "frustrated": "Frustration: distress or annoyance. Sighing, a strained tone, "
+    "self-criticism, or wanting to give up.",
+    "bored": "Boredom: finds the activity dull or tedious. Flat, minimal or off-topic "
+    "replies with little energy.",
+    "neutral": "None of these clearly. A plain, short or social reply with no sign of "
+    "the other states.",
+}
+
 
 def build_questions() -> dict:
-    return {
+    questions = {
         name: {
             "type": "score",
             "instructions": f"Rate the student's {name}. {_SCALE_NOTE}",
@@ -71,6 +102,13 @@ def build_questions() -> dict:
         }
         for name, criteria in RUBRICS.items()
     }
+    questions[LEARNING_STATE_QUESTION] = {
+        "type": "choice",
+        "instructions": "Which learning state does the student's newest turn show most? "
+        + _SCALE_NOTE,
+        "criteria": LEARNING_STATE_CRITERIA,
+    }
+    return questions
 
 
 def _band_confidence(answer, value: float, top: int) -> float:
@@ -99,15 +137,46 @@ def parse_answers(answers: dict) -> dict[str, Reading]:
             continue
         top = len(criteria) - 1
         value = answer.score / top
-        readings[name] = Reading(value=value, confidence=_band_confidence(answer, value, top))
+        readings[name] = Reading(
+            value=value,
+            confidence=_band_confidence(answer, value, top),
+            probabilities=_level_probabilities(answer, top),
+        )
     return readings
+
+
+def _level_probabilities(answer, top: int) -> tuple[float, ...] | None:
+    """The API's probability for each rubric level 0..top, or None if it gave none we can read."""
+    probabilities = getattr(answer, "probabilities", None)
+    if not probabilities:
+        return None
+    levels = [0.0] * (top + 1)
+    try:
+        for level, p in probabilities.items():
+            levels[int(level)] = float(p)
+    except (ValueError, IndexError, TypeError):
+        return None
+    return tuple(levels) if sum(levels) > 0 else None
+
+
+def parse_learning_state(answers: dict) -> dict[str, float] | None:
+    """The learning-state choice as a probability for each state, or None."""
+    answer = answers.get(LEARNING_STATE_QUESTION)
+    if getattr(answer, "type", None) != "choice":
+        return None
+    probabilities = getattr(answer, "probabilities", None) or {}
+    known = {s: float(probabilities.get(s, 0.0)) for s in LEARNING_STATE_CRITERIA}
+    return known if sum(known.values()) > 0 else None
 
 
 async def score_turn(
     client: genai.Client, model: str, wav: bytes, recent_text: str, measured: str = ""
-) -> dict[str, Reading]:
+) -> tuple[dict[str, Reading], dict[str, float] | None]:
     """Score one turn. `recent_text` is the last few lines of conversation for context.
-    `measured` is one line of Deepgram's timing measurements for the turn, if there are any."""
+    `measured` is the turn's measured evidence as plain text (word timings, voice
+    measurements, and how they compare with this student's usual), if there is any.
+
+    Returns the four readings and the learning-state probabilities (or None)."""
     context = f"{_CONTEXT_NOTE}\n{recent_text}"
     if measured:
         context += f"\n\n{measured}"
@@ -125,4 +194,5 @@ async def score_turn(
         api_version=_API_VERSION,
         timeout=5,
     )
-    return parse_answers(response.answers or {})
+    answers = response.answers or {}
+    return parse_answers(answers), parse_learning_state(answers)

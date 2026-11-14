@@ -22,7 +22,9 @@ def wait_for(check, seconds: float = 5.0) -> bool:
 def pretend_band():
     """A link to the kit's pretend band, the band itself, and what the dashboard is told."""
     sim = SimTransport(42, auto_tap=False)
-    link = BandLink(42, connect=lambda number, **options: Band.connect(number, transport=sim))
+    link = BandLink(
+        42, connect=lambda number, **options: Band.connect(number, transport=sim), safe=lambda: True
+    )
     told = []
     link.start(told.append)
     assert wait_for(lambda: link.status["state"] == "connected")
@@ -31,7 +33,7 @@ def pretend_band():
 
 def colour(sim) -> str:
     led = sim.led
-    return "#%02x%02x%02x" % (led["r"], led["g"], led["b"])
+    return f"#{led['r']:02x}{led['g']:02x}{led['b']:02x}"
 
 
 def test_a_double_tap_reaches_the_dashboard_and_the_light_follows_the_turn():
@@ -69,7 +71,7 @@ def test_a_band_that_is_not_found_is_looked_for_again(monkeypatch):
             raise VexoError("not-found-nearby", "Could not see the band.")
         return Band.connect(number, transport=sim)
 
-    link = BandLink(42, connect=connect)
+    link = BandLink(42, connect=connect, safe=lambda: True)
     told = []
     link.start(told.append)
     try:
@@ -117,3 +119,13 @@ def test_a_lecture_falls_back_to_the_computer_when_the_band_does_not_connect(mon
     assert args.band is None  # so a saved lecture says it came from the computer
     out = capsys.readouterr().out
     assert "The band did not connect" in out and "this computer's microphone" in out
+
+
+def test_bluetooth_that_would_kill_the_bot_is_never_touched():
+    asked = []
+    link = BandLink(42, connect=lambda number, **options: asked.append(number), safe=lambda: False)
+    told = []
+    link.start(told.append)
+    assert wait_for(lambda: link.status["state"] == "blocked")
+    time.sleep(0.1)
+    assert asked == [] and told[-1]["state"] == "blocked"

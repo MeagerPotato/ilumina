@@ -7,6 +7,8 @@ never holds up or stops the tutor. Only taps are read. The band's microphone sta
 a session's sound still comes from the computer's microphone.
 """
 
+import subprocess
+import sys
 import threading
 
 from loguru import logger
@@ -21,6 +23,22 @@ LIGHTS = {
 }
 _RETRY_SECONDS = 2  # a band can only be found for a minute after its double tap
 
+# macOS does not refuse Bluetooth to a program it has not allowed: it kills the program.
+# So the first scan is made by a throwaway process, and only if that one lives does the
+# bot itself touch Bluetooth.
+_PROBE = "import asyncio, bleak; asyncio.run(bleak.BleakScanner.discover(timeout=0.5))"
+
+
+def bluetooth_is_safe() -> bool:
+    try:
+        probe = subprocess.run(
+            [sys.executable, "-c", _PROBE], capture_output=True, timeout=30, check=False
+        )
+    except Exception as e:  # noqa: BLE001 - could not even ask: do not risk the bot
+        logger.warning(f"Could not test Bluetooth: {e}")
+        return False
+    return probe.returncode >= 0  # negative means the probe was killed by a signal
+
 
 class BandLink:
     """One band, looked for and held on a thread of its own.
@@ -29,8 +47,10 @@ class BandLink:
     band that is plugged in will do. `connect` is only replaced in tests.
     """
 
-    def __init__(self, number: int | None, usb: bool = False, connect=Band.connect):
-        self._number, self._usb, self._connect = number, usb, connect
+    def __init__(
+        self, number: int | None, usb: bool = False, connect=Band.connect, safe=bluetooth_is_safe
+    ):
+        self._number, self._usb, self._connect, self._safe = number, usb, connect, safe
         self._tell = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -72,6 +92,10 @@ class BandLink:
             logger.debug(f"Band message not delivered: {e}")
 
     def _run(self, stop: threading.Event) -> None:
+        if not self._usb and not self._safe():
+            logger.warning("This program may not use Bluetooth, so the Vexo band is left alone")
+            self._say("blocked")
+            return
         while not stop.is_set():
             self._say("looking")
             try:

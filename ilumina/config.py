@@ -33,6 +33,10 @@ BAND_NUMBER = int(BAND) if BAND.isdigit() else None
 # Check each step the student gives for mistakes: a second Decision 1 call per turn,
 # beside the emotion call. Set ILUMINA_WORK_CHECK=off to run without it.
 WORK_CHECK = (os.getenv("ILUMINA_WORK_CHECK") or "on").lower() not in ("off", "no", "false", "0")
+# The tutor waits at most this long for the check of the turn that just ended, so that it
+# can use it in its answer. On the demo Mac a check takes 0.5 to 0.9 seconds. A check that
+# is later than this goes with the next turn instead.
+WORK_CHECK_WAIT_SECONDS = float(os.getenv("ILUMINA_WORK_CHECK_WAIT") or 0.9)
 
 # Opt-in: save tutoring sessions (the moments the student struggled) to memory/.
 # Lectures from the Vexo band are saved only when the student says yes in lecture.py.
