@@ -243,7 +243,20 @@ class StudentStateInjector(FrameProcessor):
 
 # Longest opening we will hold back while looking for a tag that never closes.
 _MAX_TAG_CHARS = 48
-_MAX_SHOW_CHARS = 240  # a show tag carries a line of LaTeX
+_MAX_SHOW_CHARS = 400  # a show tag carries a line of LaTeX
+
+
+def _closing_bracket(text: str) -> int:
+    """Where the bracket that opens `text` closes, counting brackets inside it. -1 if not yet."""
+    depth = 0
+    for i, char in enumerate(text):
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
 
 
 def _read_tags(text: str) -> tuple[dict[str, str], str, bool]:
@@ -254,23 +267,25 @@ def _read_tags(text: str) -> tuple[dict[str, str], str, bool]:
     tags: dict[str, str] = {}
     rest = text.lstrip()
     while rest.startswith("["):
-        body, closed, after = rest[1:].partition("]")
-        start = body.lstrip().lower()
-        # A bracket still arriving may yet turn out to be a show tag ("[sh" so far).
-        is_show = start.startswith("show:") or (not closed and "show:".startswith(start))
-        key = "show" if is_show else "move"
-        if key in tags:
-            return tags, rest, False  # a second bracket of the same kind is speech
-        if not closed:
-            limit = _MAX_SHOW_CHARS if key == "show" else _MAX_TAG_CHARS
-            return tags, rest, len(rest) < limit
-        if key == "show":
-            tags[key] = body.split(":", 1)[1].strip()
+        start = rest[1:].lstrip().lower()
+        end = _closing_bracket(rest)
+        if end < 0:  # still arriving
+            if start.startswith("show:") or "show:".startswith(start):
+                # LaTeX must never be spoken: a show tag that runs away is dropped.
+                return (tags, rest, True) if len(rest) < _MAX_SHOW_CHARS else (tags, "", False)
+            if "move" in tags:
+                return tags, rest, False
+            return tags, rest, len(rest) < _MAX_TAG_CHARS
+        body = rest[1:end]
+        if start.startswith("show:"):
+            tags["show"] = body.split(":", 1)[1].strip()  # the last one written stays up
+        elif "move" in tags:
+            return tags, rest, False  # a second plain bracket is speech
         else:
-            tags[key] = body.removeprefix("move:").strip().lower()
-        rest = after.lstrip()
+            tags["move"] = body.removeprefix("move:").strip().lower()
+        rest = rest[end + 1 :].lstrip()
     # With nothing after the tags yet, another tag may still be on its way.
-    return tags, rest, not rest and len(tags) < 2
+    return tags, rest, not rest
 
 
 class TeachingMoveTagger(FrameProcessor):

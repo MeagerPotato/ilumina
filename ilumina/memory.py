@@ -63,7 +63,8 @@ NOTES_PROMPT = """Below is the transcript of a lecture or class conversation, re
 the student's Vexo band. Turn it into study notes for an AI tutor that will later help \
 this student. Use only what is in the transcript. If the transcript is too short or not \
 a lecture, say so in the summary and leave the lists short. Write every formula and math \
-expression in LaTeX between single dollar signs, like $x^2$ or $\\frac{{u}}{{v}}$.
+expression in LaTeX between single dollar signs, like $x^2$ or $\\frac{{u}}{{v}}$. Keep \
+the title in plain words with no LaTeX, because the tutor says it aloud.
 
 Transcript:
 {transcript}"""

@@ -84,7 +84,7 @@ def test_a_show_tag_goes_to_the_board_and_is_never_spoken():
 
 def test_tags_split_across_chunks_in_any_place():
     reply = ["[move: smaller", "_hint]", " [sh", "ow: x^2 ", "- 9]", " What", " factors?"]
-    assert run_shown(reply) == (" What factors?", ["smaller_hint"], ["x^2 - 9"])
+    assert run_shown(reply) == ("What factors?", ["smaller_hint"], ["x^2 - 9"])
 
 
 def test_a_move_tag_alone_still_works_when_speech_follows_in_the_next_chunk():
@@ -95,10 +95,27 @@ def test_a_move_tag_alone_still_works_when_speech_follows_in_the_next_chunk():
     )
 
 
-def test_a_show_tag_that_never_closes_is_given_up_on_and_nothing_is_lost():
-    runaway = "[show: " + "x + " * 80
+def test_a_show_tag_that_never_closes_is_dropped_not_spoken():
+    runaway = "[show: " + "x + " * 120
     spoken, moves, board = run_shown(["[move: continue] ", runaway, " ok"])
-    assert (spoken, moves, board) == (runaway + " ok", ["continue"], [])
+    assert (spoken, moves, board) == (" ok", ["continue"], [])
+
+
+def test_square_brackets_inside_the_latex_do_not_end_the_tag():
+    integral = r"\int_0^1 2x\,dx = \left[x^2\right]_0^1"
+    reply = f"[move: worked_example] [show: {integral}] So we evaluate."
+    expected = ("So we evaluate.", ["worked_example"], [integral])
+    assert run_shown([reply]) == expected
+    assert run_shown(list(reply)) == expected  # one character at a time
+
+
+def test_tags_in_either_order_and_a_second_show_tag_are_never_spoken():
+    assert run_shown(list("[show: x^2] [move: continue] Hi")) == ("Hi", ["continue"], ["x^2"])
+    assert run_shown(["[move: continue] [show: x^2] [show: 2x] Hi"]) == (
+        "Hi",
+        ["continue"],
+        ["2x"],
+    )
 
 
 def test_a_reply_that_is_only_tags_says_nothing():
