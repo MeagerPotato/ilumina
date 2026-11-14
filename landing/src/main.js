@@ -1,0 +1,108 @@
+import { createRenderer, createCamera, setFrustum, shared } from './engine.js';
+import { buildStage } from './scene.js';
+import { Overlay } from './overlay.js';
+import { Story, DURATION } from './story.js';
+
+const glCanvas = document.getElementById('scene');
+const ovCanvas = document.getElementById('overlay');
+
+const renderer = createRenderer(glCanvas);
+const camera = createCamera();
+const stage = buildStage();
+const overlay = new Overlay(ovCanvas);
+const story = new Story(stage, camera, overlay);
+
+const params = new URLSearchParams(location.search);
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+story.reduceMotion = reduceMotion;
+
+// The essential part of the scene, in art pixels. The canvas covers the whole
+// window; the scale is the largest whole number of device pixels per art
+// pixel that still fits this area, so the pixels stay perfectly square.
+const NEED_W = 316;
+const NEED_H = 256;
+const NARROW_W = 230;
+// where the world origin sits relative to the canvas center, so the island
+// and the space above it for heads and speech bubbles are centered together
+const ORIGIN_X = -8;
+const ORIGIN_Y = 36;
+let layout = null;
+
+function computeLayout() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 4);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const dw = Math.max(1, Math.round(vw * dpr));
+  const dh = Math.max(1, Math.round(vh * dpr));
+  const portrait = vw < vh;
+  const needW = portrait ? NARROW_W : NEED_W;
+  let k = Math.floor(Math.min(dw / needW, dh / NEED_H));
+  k = Math.max(1, k);
+  const W = Math.ceil(dw / k);
+  const H = Math.ceil(dh / k);
+  const cssPerArt = k / dpr;
+  return { dpr, k, W, H, cssW: (W * k) / dpr, cssH: (H * k) / dpr, fontScale: cssPerArt < 1.5 ? 2 : 1 };
+}
+
+function applyLayout() {
+  layout = computeLayout();
+  const { W, H, cssW, cssH } = layout;
+  renderer.setSize(W, H, false);
+  for (const c of [glCanvas, ovCanvas]) {
+    c.style.width = cssW + 'px';
+    c.style.height = cssH + 'px';
+    c.style.left = Math.floor((window.innerWidth - cssW) / 2) + 'px';
+    c.style.top = Math.floor((window.innerHeight - cssH) / 2) + 'px';
+  }
+  overlay.resize(W, H, layout.fontScale);
+  story.resize(W, H);
+  dirty = true;
+}
+
+let dirty = true;
+let clock = 0;
+let last = performance.now();
+let lastFrame = -1;
+const speed = parseFloat(params.get('speed') || '1');
+let frozen = params.has('t') ? parseFloat(params.get('t')) : null;
+
+function renderAt(t) {
+  const shake = story.update(t);
+  setFrustum(camera, layout.W, layout.H, ORIGIN_X + shake.x, ORIGIN_Y + shake.y);
+  story.drawOverlay(t, shake);
+  renderer.render(stage.scene, camera);
+}
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (frozen === null) clock = (clock + dt * speed) % DURATION;
+  const t = frozen === null ? clock : frozen;
+  const frame = Math.floor(t * 30);
+  if (frame === lastFrame && !dirty) return;
+  lastFrame = frame;
+  dirty = false;
+  renderAt(frame / 30);
+}
+
+window.addEventListener('resize', applyLayout);
+applyLayout();
+requestAnimationFrame(tick);
+
+// Hooks for automated frame checks.
+window.__scene = {
+  setTime(t) {
+    frozen = t;
+    renderAt(Math.floor(t * 30) / 30);
+  },
+  play() {
+    frozen = null;
+  },
+  duration: DURATION,
+  shared,
+  stage,
+  story,
+  camera,
+  renderer,
+};
