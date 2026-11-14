@@ -1434,7 +1434,7 @@ dependencies = [
     { name = "pipecat-ai", extra = ["deepgram", "google", "runner", "webrtc"] },
     { name = "python-dotenv" },
     { name = "sounddevice" },
-    { name = "vexo-open", extra = ["ble"] },
+    { name = "vexo-open", extra = ["ble", "serial"] },
 ]
 
 [package.dev-dependencies]
@@ -1451,7 +1451,7 @@ requires-dist = [
     { name = "pipecat-ai", extras = ["deepgram", "google", "runner", "silero", "webrtc"], specifier = "<2" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "sounddevice", specifier = ">=0.5.6" },
-    { name = "vexo-open", extras = ["ble"], git = "https://github.com/VexoAI-Org/vexo-open-kit?subdirectory=python&rev=1e4291e2fa4896b1f603d3d4f0b009c483425da0" },
+    { name = "vexo-open", extras = ["ble", "serial"], git = "https://github.com/VexoAI-Org/vexo-open-kit?subdirectory=python&rev=1e4291e2fa4896b1f603d3d4f0b009c483425da0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2801,6 +2801,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyserial"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb", size = 159125, upload-time = "2020-11-23T03:59:15.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0", size = 90585, upload-time = "2020-11-23T03:59:13.41Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3311,6 +3320,9 @@ source = { git = "https://github.com/VexoAI-Org/vexo-open-kit?subdirectory=pytho
 [package.optional-dependencies]
 ble = [
     { name = "bleak" },
+]
+serial = [
+    { name = "pyserial" },
 ]
 
 [[package]]

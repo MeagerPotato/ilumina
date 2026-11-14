@@ -20,6 +20,8 @@ from pipecat.frames.frames import (
     ProposedUserStartedSpeakingFrame,
     TranscriptionFrame,
     UserImageRawFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
@@ -293,6 +295,35 @@ class StudentStateInjector(FrameProcessor):
         await self.push_frame(
             RTVIServerMessageFrame(data={"type": "work_check_told", "which": which})
         )
+
+
+class BandLight(FrameProcessor):
+    """Sits right after the user aggregator and shows the stage of the turn on the
+    student's Vexo band: your turn, hearing you, heard you, the tutor is speaking.
+
+    It only tells the band link which light is wanted, which returns at once. Every
+    frame passes through untouched.
+    """
+
+    def __init__(self, link, **kwargs):
+        super().__init__(**kwargs)
+        self._link = link
+        self._student_speaking = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, UserStartedSpeakingFrame):
+            self._student_speaking = True
+            self._link.show("hearing")
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            self._student_speaking = False
+            self._link.show("thinking")
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            self._link.show("speaking")
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            # After the student cut in, the turn is still theirs.
+            self._link.show("hearing" if self._student_speaking else "listening")
+        await self.push_frame(frame, direction)
 
 
 # Longest opening we will hold back while looking for a tag that never closes.

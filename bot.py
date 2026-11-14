@@ -10,6 +10,8 @@ Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per t
               -> shown on the dashboard and given to Decision 1 beside the audio
 Camera path:  the newest camera frame is shown to the tutor with each student turn
               (the browser's camera, or the head-worn GoPro with ILUMINA_CAMERA=gopro)
+Band:         with ILUMINA_BAND set, the student's Vexo band: a double tap means "done
+              talking" and its light shows whose turn it is
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
               stripped before speech and shown on the dashboard
 
@@ -63,6 +65,7 @@ from ilumina import config, memory
 from ilumina.emotion import score_turn
 from ilumina.evidence import describe_evidence
 from ilumina.processors import (
+    BandLight,
     CameraView,
     MicLevel,
     StudentStateInjector,
@@ -102,6 +105,13 @@ if config.CAMERA == "gopro":
     from ilumina.headcam import HeadCam
 
     headcam = HeadCam()
+
+
+band_link = None
+if config.BAND_USB or config.BAND_NUMBER:
+    from ilumina.band_link import BandLink
+
+    band_link = BandLink(config.BAND_NUMBER, usb=config.BAND_USB)
 
 
 def recent_text(context: LLMContext, limit: int = 6) -> str:
@@ -199,6 +209,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             stt,
             voice_evidence,
             user_aggregator,
+            *([BandLight(band_link)] if band_link else []),
             camera_view,
             state_injector,
             llm,
@@ -295,6 +306,17 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
 
+    loop = asyncio.get_running_loop()
+
+    def from_band(message: dict):
+        """A change on the Vexo band, or a double tap. Called on the band's own thread."""
+        asyncio.run_coroutine_threadsafe(
+            worker.queue_frame(RTVIServerMessageFrame(data=message)), loop
+        )
+
+    if band_link:
+        band_link.start(from_band)
+
     @worker.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
         # Tell the dashboard which models this session is really running on.
@@ -313,6 +335,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 }
             )
         )
+        if band_link:
+            # Where the band stands right now. Later changes arrive by themselves.
+            await worker.queue_frame(RTVIServerMessageFrame(data=band_link.status))
         if remembered:
             # What the tutor was told it remembers, so the student can see it too.
             reviewing = (review["title"] or "your most recent class") if review else ""
@@ -350,6 +375,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     try:
         await runner.run()
     finally:
+        if band_link:
+            band_link.stop(from_band)
         if headcam:
             # The camera stops with the session, however the session ended.
             await asyncio.to_thread(headcam.release, session)
