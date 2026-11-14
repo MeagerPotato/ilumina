@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./vendor/katex/katex.min.css">
 <style>
   :root {
     --paper: #f6f8fb; --panel: #ffffff; --ink: #14213d; --muted: #5b6780; --grid: #d9e1ec;
@@ -70,6 +71,12 @@
   .note.stale { border-color: var(--warn); color: var(--warn); }
   .move { margin: 0 0 14px; font-size: 20px; }
   .move b { font-weight: 800; }
+  /* The one dark surface on the page: what the tutor has written up, like a board. */
+  .board { margin: 0 0 14px; padding: 12px 16px 16px; border-radius: 6px; background: var(--ink); color: #fff; overflow-x: auto; }
+  .board h3 { font-size: 14px; font-weight: 400; margin: 0 0 6px; opacity: .7; }
+  .board .math { font-size: 21px; }
+  .board .katex-display { margin: 0; text-align: left; }
+  .board .katex-display > .katex { text-align: left; }
   .lines { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
   .lines li { padding: 6px 0; border-top: 1px solid var(--grid); }
   .lines li b { font-weight: 600; }
@@ -95,7 +102,7 @@
 
   .memory .class { margin: 0 0 12px; }
   .memory .class b { font-weight: 600; }
-  .memory .class span { display: block; color: var(--muted); font-size: 15px; }
+  .memory .class > span { display: block; color: var(--muted); font-size: 15px; }
   .memory h3 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; padding-top: 14px; border-top: 1.5px solid var(--ink); }
   .memory .plan { max-height: 280px; overflow: auto; font-size: 15.5px; }
   .memory .plan h4 { font-size: 15.5px; font-weight: 800; margin: 12px 0 4px; }
@@ -168,6 +175,7 @@
       <h2 id="talk-h">What Ilumina was told, and what it chose</h2>
       <p class="note" id="note">Nothing yet. Ilumina gets a one-line summary before each reply.</p>
       <p class="move" id="move" hidden>Ilumina chose: <b id="move-name"></b></p>
+      <div class="board" id="board" hidden><h3>On the board</h3><div class="math" id="board-math"></div></div>
       <ul class="lines" id="lines" aria-live="polite"></ul>
     </section>
     <section class="memory" aria-labelledby="mem-h">
@@ -184,6 +192,7 @@
   <p class="running" id="running" hidden></p>
   <audio id="bot-audio" autoplay></audio>
 </main>
+<script src="./vendor/katex/katex.min.js"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

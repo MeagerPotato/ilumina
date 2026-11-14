@@ -241,16 +241,45 @@ class StudentStateInjector(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-# Longest opening we will hold back while looking for a move tag.
+# Longest opening we will hold back while looking for a tag that never closes.
 _MAX_TAG_CHARS = 48
+_MAX_SHOW_CHARS = 240  # a show tag carries a line of LaTeX
+
+
+def _read_tags(text: str) -> tuple[dict[str, str], str, bool]:
+    """Read the tags a reply opens with: (tags, the words after them, undecided).
+
+    `undecided` is True while more text is needed to know where the tags end.
+    """
+    tags: dict[str, str] = {}
+    rest = text.lstrip()
+    while rest.startswith("["):
+        body, closed, after = rest[1:].partition("]")
+        start = body.lstrip().lower()
+        # A bracket still arriving may yet turn out to be a show tag ("[sh" so far).
+        is_show = start.startswith("show:") or (not closed and "show:".startswith(start))
+        key = "show" if is_show else "move"
+        if key in tags:
+            return tags, rest, False  # a second bracket of the same kind is speech
+        if not closed:
+            limit = _MAX_SHOW_CHARS if key == "show" else _MAX_TAG_CHARS
+            return tags, rest, len(rest) < limit
+        if key == "show":
+            tags[key] = body.split(":", 1)[1].strip()
+        else:
+            tags[key] = body.removeprefix("move:").strip().lower()
+        rest = after.lstrip()
+    # With nothing after the tags yet, another tag may still be on its way.
+    return tags, rest, not rest and len(tags) < 2
 
 
 class TeachingMoveTagger(FrameProcessor):
     """Sits right after the LLM.
 
-    The tutor starts each reply with a tag such as ``[move: smaller_hint]``.
-    This removes the tag before it is spoken and reports the move to the
-    dashboard. A reply with no tag passes through untouched.
+    The tutor starts each reply with a tag such as ``[move: smaller_hint]``, and may
+    add ``[show: x^2 - 9]`` with the math it is talking about, in LaTeX. This removes
+    the tags before the reply is spoken and reports them to the dashboard. A reply
+    with no tag passes through untouched.
     """
 
     def __init__(self, **kwargs):
@@ -263,22 +292,29 @@ class TeachingMoveTagger(FrameProcessor):
             self._held = ""
         elif isinstance(frame, LLMTextFrame) and self._held is not None:
             self._held += frame.text
-            text = self._held.lstrip()
-            if text.startswith("[") and "]" in text:
-                tag, _, rest = text[1:].partition("]")
-                move = tag.removeprefix("move:").strip().lower()
-                await self.push_frame(
-                    RTVIServerMessageFrame(data={"type": "teaching_move", "move": move})
-                )
-                text = rest.lstrip()
-            elif not text or (text.startswith("[") and len(text) < _MAX_TAG_CHARS):
-                return  # keep holding until the tag closes or clearly is not one
+            tags, text, undecided = _read_tags(self._held)
+            if undecided:
+                return  # keep holding until the tags close or clearly are not tags
+            await self._report(tags)
             self._held = None
             if not text:
                 return
             frame.text = text
         elif isinstance(frame, LLMFullResponseEndFrame) and self._held:
-            # The reply ended while we were still holding text. Speak it.
-            await self.push_frame(LLMTextFrame(self._held), direction)
+            # The reply ended while we were still holding text. Speak what is not a tag.
+            tags, text, _ = _read_tags(self._held)
+            await self._report(tags)
+            if text:
+                await self.push_frame(LLMTextFrame(text), direction)
             self._held = None
         await self.push_frame(frame, direction)
+
+    async def _report(self, tags: dict[str, str]):
+        if "move" in tags:
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "teaching_move", "move": tags["move"]})
+            )
+        if tags.get("show"):
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "board", "latex": tags["show"]})
+            )

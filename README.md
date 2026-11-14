@@ -13,6 +13,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 - **State tracker.** Plain Python that smooths the scores over turns. A single odd turn is a blip. Two turns in a row, or one very confident reading, is a trend.
 - **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
 - **Camera path.** Optional. With the camera on, the newest frame is shown to the tutor with each student turn, replacing the one before it. Pictures are not saved, and with the camera off the tutor carries on by voice. The camera is the browser's by default. Start the bot with `ILUMINA_CAMERA=gopro` to use the head-worn GoPro from [`gopro/`](gopro/README.md) instead: the same "Turn camera on" button then starts the GoPro feed, and the panel shows the frame the tutor gets.
+- **Math on screen.** The tutor may add a `[show: ...]` tag with the equation it is talking about, in LaTeX. The tag is stripped before speech and drawn on the dashboard's board, so math is spoken in plain words and shown properly. Lecture notes and study plans write math in LaTeX too. KaTeX 0.16.11 is bundled in `dashboard/vendor/katex/`, so it works offline.
 - **Dashboard feed.** Every state update is sent to the browser as a `student_state` server message.
 
 All readings are estimates of how the student sounds, not facts about how they feel.
