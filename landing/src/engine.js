@@ -251,13 +251,19 @@ export function createRenderer(canvas) {
     alpha: false,
     powerPreference: 'high-performance',
   });
+  configureRenderer(renderer);
+  return renderer;
+}
+
+// Also called after a lost WebGL context comes back, because three.js then
+// rebuilds its shadow map and background state with default settings.
+export function configureRenderer(renderer) {
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.BasicShadowMap;
   renderer.setClearColor(0xffffff, 1);
-  return renderer;
 }
 
 export function createCamera() {

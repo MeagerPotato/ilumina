@@ -24,6 +24,25 @@
       #overlay {
         pointer-events: none;
       }
+      .still {
+        margin: 0;
+      }
+      .still[hidden] {
+        display: none;
+      }
+      .still img {
+        position: fixed;
+        image-rendering: crisp-edges;
+        image-rendering: pixelated;
+      }
+      .still figcaption {
+        position: fixed;
+        left: 16px;
+        right: 16px;
+        text-align: center;
+        font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #7a7a7a;
+      }
       .sr-only {
         position: absolute;
         width: 1px;
