@@ -31,7 +31,7 @@ uv run bot.py
 
 Open http://localhost:7860/dashboard/, click Start session, and talk. Use earbuds so Ilumina does not hear itself.
 
-The dashboard shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
+The dashboard reads left to right: what Deepgram measured on the last turn, how Ilumina read it, and the teaching move the tutor chose. Below that, every turn of the session is a column, with the tutor's move under it. It shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
 
 The first run downloads the voice activity model, so give it about 20 seconds.
 
