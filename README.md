@@ -11,6 +11,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 - **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, all the silence inside the answer, filler words, hedges such as "maybe" and how long the student waited before answering. The dashboard shows these numbers, and Decision 1 gets them as one line beside the audio.
 - **Voice features.** From the turn's own audio Ilumina measures pitch, pitch range, whether the voice rises or falls at the end, and loudness. After three turns it also says which of these are clearly different from this student's usual, since people differ in how they normally speak.
 - **Mic meter.** Once a second the bot tells the dashboard how loud the microphone is, as speech to text gets it, and logs it every 5 seconds. A silent microphone shows as "Mic is silent".
+- **Where the conversation is.** A bar at the top of the dashboard says whose turn it is: "Your turn", "Hearing you" with the words heard so far, "Heard you" while the tutor thinks, and "Ilumina is speaking". It follows the bot's own events. In a loud room Deepgram Flux can wait a long time to be sure a turn is over, so "Done talking" switches the microphone to silence until the tutor answers, which ends the turn at once.
 - **State tracker.** Plain Python that keeps a probability for every level and folds in each turn's probabilities with Bayes' rule, so it always knows how sure it is. States persist differently (boredom lingers, frustration fades faster), and one-word turns count for less. A single odd turn is a blip. Two agreeing turns, or one very confident reading, is a trend. Confusion that lasts three turns is flagged, because brief confusion is part of learning and lasting confusion is not.
 - **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
 - **Camera path.** Optional. With the camera on, the newest frame is shown to the tutor with each student turn, replacing the one before it. Pictures are not saved, and with the camera off the tutor carries on by voice. The camera is the browser's by default. Start the bot with `ILUMINA_CAMERA=gopro` to use the head-worn GoPro from [`gopro/`](gopro/README.md) instead: the same "Turn camera on" button then starts the GoPro feed, and the panel shows the frame the tutor gets.
@@ -31,7 +32,7 @@ uv run bot.py
 
 Open http://localhost:7860/dashboard/, click Start session, and talk. Use earbuds so Ilumina does not hear itself.
 
-The dashboard shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
+The dashboard reads left to right: what Deepgram measured on the last turn, how Ilumina read it, and the teaching move the tutor chose. Below that, every turn of the session is a column, with the tutor's move under it. It shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
 
 The first run downloads the voice activity model, so give it about 20 seconds.
 

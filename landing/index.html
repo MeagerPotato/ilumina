@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Ilumina</title>
+    <meta name="description" content="A student, a philosopher who will not help, and a tutor that listens to how you sound." />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #ffffff;
+        overflow: hidden;
+      }
+      canvas {
+        position: fixed;
+        display: block;
+        image-rendering: crisp-edges;
+        image-rendering: pixelated;
+      }
+      #overlay {
+        pointer-events: none;
+      }
+      .still {
+        margin: 0;
+      }
+      .still[hidden] {
+        display: none;
+      }
+      .still img {
+        position: fixed;
+        image-rendering: crisp-edges;
+        image-rendering: pixelated;
+      }
+      .still figcaption {
+        position: fixed;
+        left: 16px;
+        right: 16px;
+        text-align: center;
+        font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #7a7a7a;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas
+      id="scene"
+      role="img"
+      aria-label="Animated pixel-art scene. A student at a desk asks a philosopher, sitting in the pose of Rodin's Thinker, for help with calculus homework. He answers only in riddles. The student snaps, pulls out an absurdly large cartoon gun with knives and missile launchers, and chases him off with a barrage. Then the student puts on a small head-worn tutor, which notices the frustration, slows down, and walks them through the chain rule until they get it."
+    ></canvas>
+    <canvas id="overlay" aria-hidden="true"></canvas>
+    <p class="sr-only">An emotionally aware voice tutor that listens to how a student sounds, not only what they say.</p>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
