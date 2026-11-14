@@ -235,6 +235,7 @@ const stageEvents = {
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
+    hardMoments = msg.hard_moments ?? 0;
     history.push(msg);
     renderNow(msg);
     renderTrace();
@@ -362,11 +363,35 @@ function toggleCamera() {
 
 let client;
 const shownSegments = new Set();
+
+// Nothing from a session is kept unless the student says yes when it ends.
+let hardMoments = 0, endNote = "";
+async function endSession(save) {
+  $("ask").hidden = true;
+  if (save) {
+    try {
+      const { saved } = await client.sendClientRequest("save_session", {}, 3000);
+      endNote = saved ? ` Saved ${saved} hard ${saved === 1 ? "moment" : "moments"} for next time.` : " Nothing was saved.";
+    } catch (e) {
+      console.error(e);
+      endNote = " Saving failed, so nothing was kept.";
+    }
+  }
+  resumeMic(); // never leave the microphone track switched off for the next session
+  await client?.disconnect();
+}
+
 async function toggle() {
   const button = $("connect");
   if (client) {
-    resumeMic(); // never leave the microphone track switched off for the next session
-    await client.disconnect();
+    if (hardMoments && $("ask").hidden) {
+      $("ask-text").textContent = `You sounded stuck ${hardMoments === 1 ? "once" : `${hardMoments} times`} in this session. ` +
+        "Ilumina can keep what was said then, on this computer only, and start there next time.";
+      $("ask").hidden = false;
+      $("ask-save").focus();
+      return;
+    }
+    await endSession(false);
     return;
   }
   button.disabled = true;
@@ -377,7 +402,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("ask").hidden = true; hardMoments = 0; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -435,8 +460,10 @@ async function toggle() {
 
 $("connect").addEventListener("click", toggle);
 $("done").addEventListener("click", doneTalking);
+$("ask-save").addEventListener("click", () => endSession(true));
+$("ask-skip").addEventListener("click", () => endSession(false));
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, toggle, use: (c) => { client = c; } }; // lets checks feed recorded messages and a camera track

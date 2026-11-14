@@ -132,6 +132,17 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
     hard_moments = []  # turns where the student sounded confused or frustrated
+    kept = False
+
+    def keep_hard_moments() -> int:
+        """Save this session's hard moments to memory, once. Returns how many were saved."""
+        nonlocal kept
+        if kept or not hard_moments:
+            return 0
+        path = memory.save("sessions", {"hard_moments": hard_moments})
+        kept = True
+        logger.info(f"Saved {len(hard_moments)} hard moments of this session to {path}")
+        return len(hard_moments)
 
     pipeline = Pipeline(
         [
@@ -200,6 +211,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "type": "student_state",
                     "note": describe(snapshot),
                     "scored_ms": scored_ms,
+                    # So the dashboard knows whether there is anything to ask about saving.
+                    "hard_moments": len(hard_moments),
                     **snapshot,
                 }
             )
@@ -232,13 +245,23 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 
+    @worker.rtvi.event_handler("on_client_message")
+    async def on_client_message(rtvi, message):
+        # The dashboard asks the student before a session ends. Only a yes arrives here.
+        if message.type != "save_session":
+            return
+        try:
+            await rtvi.send_server_response(message, {"saved": keep_hard_moments()})
+        except Exception as e:  # noqa: BLE001 - the student must still get an answer
+            logger.warning(f"Could not save this session to memory: {e}")
+            await rtvi.send_error_response(message, "Could not save this session.")
+
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
         try:
-            if config.SAVE_MEMORY and hard_moments:
-                path = memory.save("sessions", {"hard_moments": hard_moments})
-                logger.info(f"Saved this session's hard moments to {path}")
+            if config.SAVE_MEMORY:  # the setting saves without asking
+                keep_hard_moments()
         except Exception as e:  # noqa: BLE001 - never block shutting the session down
             logger.warning(f"Could not save this session to memory: {e}")
         finally:
