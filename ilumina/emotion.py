@@ -10,6 +10,9 @@ from google import genai
 
 from ilumina.state import Reading
 
+# The Decisions API is only served under v1beta; the SDK's default path returns 404.
+_API_VERSION = "v1beta"
+
 _SCALE_NOTE = (
     "Judge only the student's most recent turn in the audio. "
     "Use how they sound (tone, pace, pauses, hedging) as well as what they say."
@@ -88,6 +91,7 @@ async def score_turn(
             },
         ],
         questions=build_questions(),
+        api_version=_API_VERSION,
         timeout=5,
     )
     return parse_answers(response.answers or {})
