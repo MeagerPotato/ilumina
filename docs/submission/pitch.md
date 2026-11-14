@@ -1,43 +1,53 @@
-# Ilumina pitch (about 2.5 minutes)
+# Ilumina live demo for judging (2 minutes, then 1 minute Q&A)
 
-Read at a normal pace. Lines in *italics* are what to do, not what to say. Swap who says what between Allen and Aiden as you like.
+Judging is 2 minutes of demo and 1 minute of questions, right after submissions close at 6 PM. Mostly show, barely tell. Lines in *italics* are actions. Allen drives the demo, Aiden talks (or swap).
+
+Have the bot running, the dashboard open on Start session, the GoPro on the headband and a problem already written big on paper before you walk up.
 
 ---
 
-**Hook (15 s)**
+**0:00 Hook (15 s)**
 
-Every tutor app knows what you said. None of them know how you said it.
+Every tutor app knows what you said. None of them know how you said it. When a student says "yeah, I think I get it" after a long pause, a human tutor backs up. An AI tutor says "Great, next problem." Ilumina hears the difference.
 
-When a student says "yeah, I think I get it" with a long pause and a flat voice, a human tutor stops and backs up. An AI tutor says "Great! Next problem." That gap is where students quietly give up.
+**0:15 Start talking (25 s)**
 
-**What it is (20 s)**
+*Click Start session. Ilumina greets you by voice, and names your last class if one is saved. Click Turn camera on.*
 
-This is Ilumina, a voice tutor that listens to how you sound, not only what you say, and changes how it teaches.
+It's a voice tutor. Allen just talks to it, and the GoPro on his head shows it his page.
 
-You talk to it out loud, like a real tutor. You can wear a camera on your head so it sees the page you're writing on. And it can remember the lecture you sat in this morning.
+*Allen: "Can you help me with this derivative?"* Ilumina reads the handwriting and points at the exact step.
 
-**Live demo (75 s)**
+**0:40 The emotional part (40 s)**
 
-*Start a session on the dashboard. Put on the headband GoPro. Write a calculus problem in big handwriting.*
+*Allen answers slowly, with a long pause, "uh... I think so?" Do it twice.*
 
-I'm working on a derivative. *Speak the problem.* Ilumina reads my handwriting from the camera and points at the exact step.
+Look at the dashboard. Deepgram Flux gives word timings, so we measure pace, the longest pause and how long he waited. Gemini scores the audio for confusion, frustration, confidence and engagement, each with how sure it is.
 
-*Answer hesitantly, with a long pause.*
+One odd turn is a blip and gets ignored. Two in a row is a trend, so Ilumina changes its teaching move, here to a new explanation, and writes the math on the board while it talks.
 
-Watch the left side. Deepgram Flux gives us word timings for every turn, so we measure pace, the longest pause and how long I waited before answering. Gemini scores the audio of my turn for confusion, frustration, confidence and engagement, each with how sure it is.
+**1:20 How it's built (25 s)**
 
-One odd turn is a blip and Ilumina ignores it. Two in a row is a trend, and you can see it change its teaching move to a new explanation, with the math drawn on the board while it talks.
+One Pipecat pipeline. Deepgram Flux listens and detects turns, Aura-2 is the voice, Gemini 4 Hydrogen is the tutor, with first words in about 1.5 to 2 seconds. Emotion runs beside the conversation, so the voice never waits more than 0.4 seconds for it.
 
-*Point at the teaching move and the board.*
+And with the Vexo open kit, Ilumina listens to your lecture, writes study notes, and opens your next session from that class. Nothing is saved unless you say yes.
 
-**How it works (25 s)**
+**1:45 Close (15 s)**
 
-It's one Pipecat pipeline. Deepgram Flux for listening and turn detection, Aura-2 for the voice, and Gemini 4 Hydrogen as the tutor, with first words in about one and a half to two seconds. Emotion scoring runs as a side call, and the tutor waits at most 0.4 seconds for it, so the voice never stalls on emotion.
+Every number on screen is a real model output, shown as an estimate, never a fact about how you feel. Ilumina: a tutor that notices when you're lost, even when you say you're fine.
 
-For lectures we used the Vexo open kit. We didn't have a band, so the Mac mic plays through Vexo's simulated band over the real Vexo protocol. Ilumina writes study notes from the lecture, asks before saving anything, and opens your next session from that class.
+---
 
-**Why it matters and close (15 s)**
+## If the live demo breaks
 
-Everything on screen is a real model output, labeled as an estimate, never a fact about how you feel. Nothing is saved unless you say yes.
+Say "here's the same thing recorded an hour ago" and play the 1 minute video. Keep talking over it with the script above.
 
-Ilumina: a tutor that notices when you're lost, even when you say you're fine.
+## Q&A prep (1 minute, keep answers to one or two sentences)
+
+- **Isn't reading emotion creepy or wrong?** It's labeled as an estimate of how you sound, not how you feel. It only changes the teaching move, nothing is saved without a yes, and camera pictures are never stored.
+- **How accurate is it?** We didn't run a formal accuracy test today. What makes it usable is smoothing: one odd reading is ignored, and the tutor only changes course on a trend.
+- **What about slow talkers or accents?** Right now it doesn't know your personal baseline. Learning each student's normal pace is the next thing we'd build.
+- **Why not just read the words?** "I think I get it" says yes. The 3 second pause before it says no. Flux's word timings give us that pause for free.
+- **Why Hydrogen and not a bigger model?** Argon gave deeper answers but took over 4 seconds to start talking. In voice, latency is the product.
+- **Where's the Vexo band?** We didn't have one, so the Mac mic runs through Vexo's simulated band on the real Vexo protocol. With a band it's one flag: `--band 42`.
+- **What does it cost to run?** Not measured yet. Per turn it's one Deepgram stream, one tutor call and one small emotion call.

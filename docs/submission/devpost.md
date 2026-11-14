@@ -81,8 +81,11 @@ pipecat, deepgram, deepgram-flux, deepgram-aura, gemini, gemini-4, google-ai-stu
 - **Deepgram, Best Voice on Pipecat:** Flux handles listening and turn detection, and its word timings are our voice evidence. Aura-2 is the voice. All in one Pipecat pipeline with first words in about 1.5 to 2 seconds.
 - **Vexo main track:** the lecture path runs through the Vexo open kit's band library and protocol, with the Mac mic standing in for the band, ready for a real band with one flag.
 
-## Links to add
+## Required by the organizers (checklist)
 
-- Demo video (YouTube, Unlisted)
-- GitHub: https://github.com/MeagerPotato/ilumina
-- Landing page: Aiden's page from PR 7 (screenshots or the HTML file, since we are not hosting)
+- [ ] Project description: the sections above
+- [x] Public GitHub repo with code and a README: https://github.com/MeagerPotato/ilumina (public, README on main)
+- [ ] 1 minute demo video (optional, backup for judging): YouTube, Unlisted
+- [ ] Sponsor tracks: Google DeepMind Best Use of Gemini 4, Deepgram Best Voice on Pipecat, Vexo main track
+- [ ] Every commit pushed before 6:00 PM PT
+- Landing page: Aiden's page from PR 7, as screenshots in the image gallery (we are not hosting it)
