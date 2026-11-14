@@ -14,6 +14,7 @@
     --line: #e6e8ee; --wash: #f5f6f9; --shadow: #eceef3;
     /* One fixed colour per reading, checked for colour-blind separation. */
     --confusion: #7a4fe0; --frustration: #d63a4a; --confidence: #0e9384; --engagement: #2b6fe3;
+    --bored: #b26a00; --neutral: #8a91a3;
     --warn: #a15c00; --live: #13867d;
     --pixel: "Silkscreen", ui-monospace, monospace;
   }
@@ -73,8 +74,22 @@
   .stats dd { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; }
   .stats dd.none { color: var(--faint); }
   .spoke { color: var(--muted); font-size: 12px; margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+  .spoke + .spoke { margin-top: 4px; padding-top: 0; border-top: 0; }
   .stats dd small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
 
+  .headline { margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .headline .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .headline #state-name { --c: var(--muted); font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; text-transform: capitalize; display: inline-flex; align-items: center; gap: 9px; }
+  .headline #state-name::before { content: ""; width: 14px; height: 14px; background: var(--c); }
+  .headline #state-meta { color: var(--muted); font-size: 13px; }
+  .dist { display: flex; gap: 2px; height: 8px; margin-top: 10px; }
+  .dist i { min-width: 2px; }
+  .usual { margin: 16px 0 0; }
+  .usual h3 { margin: 0 0 8px; font: 400 11px/1 var(--pixel); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips span { font-size: 13px; padding: 3px 8px; background: var(--wash); border: 1px solid var(--line); }
+  .chips span b { font-weight: 700; }
+  .chips span.soft { color: var(--muted); }
   .dims { display: grid; gap: 12px; }
   .dim { display: grid; grid-template-columns: 116px minmax(0, 1fr) 84px; grid-template-areas: "name track level"; align-items: center; gap: 12px; }
   .dim .track { grid-area: track; }
@@ -200,11 +215,17 @@
         <div><dt>ums and uhs</dt><dd class="none">–</dd></div>
         <div><dt>wait before answering</dt><dd class="none">–</dd></div>
       </dl>
+      <div class="usual" id="usual" hidden><h3>vs. their usual</h3><div class="chips" id="usual-chips"></div></div>
       <p class="spoke" id="spoke" hidden></p>
+      <p class="spoke" id="pitch" hidden></p>
     </section>
     <div class="arrow" aria-hidden="true"><svg viewBox="0 0 7 7"><path fill="currentColor" d="M0 0h2v1h1v1h1v1h1v1H4v1H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0z"/></svg></div>
     <section class="card" aria-labelledby="read-h">
       <div class="eyebrow"><h2 id="read-h">2 · Read</h2><small id="scored">how they sound</small></div>
+      <div class="headline" id="headline" hidden>
+        <div class="top"><span id="state-name"></span><span id="state-meta"></span></div>
+        <div class="dist" id="state-dist" role="img"></div>
+      </div>
       <div class="dims" id="dims"><p class="empty">Start a session and say something.</p></div>
       <div class="scale" id="scale" hidden><span><b>low</b><b>medium</b><b>high</b></span></div>
       <div class="key" id="key" hidden>

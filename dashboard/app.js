@@ -17,6 +17,11 @@ const MOVE_SHORT = {
   continue: "Go on", smaller_hint: "Hint", new_explanation: "Re-explain",
   worked_example: "Example", harder_problem: "Harder", check_in: "Check in",
 };
+// The overall learning state, when the bot sends one. Fixed colours: the three that match a
+// reading share its colour, bored is amber, and neutral is grey on purpose.
+const STATES = ["engaged", "frustrated", "confused", "bored", "neutral"];
+const STATE_COLOR = { engaged: "var(--engagement)", frustrated: "var(--frustration)", confused: "var(--confusion)", bored: "var(--bored)", neutral: "var(--neutral)" };
+const stateColor = (st) => STATE_COLOR[st] ?? "var(--muted)";
 const history = []; // one snapshot per scored turn
 // Teaching moves, each with how many readings the dashboard had when the move arrived.
 // The bot sends each reading here as it gives it to the tutor, and the move comes back
@@ -32,8 +37,39 @@ const dimsOf = (snapshot) => [...DIMS, ...Object.keys(snapshot.dimensions).filte
   .filter((d) => snapshot.dimensions[d]);
 const colorOf = (dim) => (DIMS.includes(dim) ? color(dim) : "var(--muted)");
 
+// One headline for the turn: the learning state the tracker settled on, how sure it is,
+// and how that belief is spread over all five states. Absent when the bot sent none.
+function renderHeadline(ls) {
+  $("headline").hidden = !ls;
+  if (!ls) return;
+  const name = $("state-name");
+  name.textContent = ls.state;
+  name.style.setProperty("--c", stateColor(ls.state));
+  const bits = [`${Math.round(ls.certainty * 100)}% sure`, ls.turns === 1 ? "new this turn" : `${ls.turns} turns`];
+  if (ls.reading && ls.reading !== ls.state) bits.push(`this turn looked ${ls.reading}`);
+  $("state-meta").textContent = bits.join(" · ");
+  const dist = ls.distribution ?? {};
+  const order = [...STATES, ...Object.keys(dist).filter((st) => !STATES.includes(st))];
+  $("state-dist").innerHTML = order.filter((st) => dist[st] > 0.005).map((st) =>
+    `<i style="flex:${dist[st]};background:${stateColor(st)}" title="${esc(st)} ${Math.round(dist[st] * 100)}%"></i>`).join("");
+  $("state-dist").setAttribute("aria-label", order.filter((st) => dist[st] != null).map((st) => `${st} ${Math.round(dist[st] * 100)}%`).join(", "));
+}
+
+// How this turn differs from the student's own usual, and how much it counted.
+function renderUsual(snapshot) {
+  const chips = Object.entries(snapshot.vs_usual ?? {}).map(([what, how]) => `<span>${esc(what)} <b>${esc(how)}</b></span>`);
+  if (snapshot.weight != null && snapshot.weight < 1) chips.push(`<span class="soft">short turn, counted ${snapshot.weight === 0.5 ? "half" : `×${snapshot.weight}`}</span>`);
+  $("usual").hidden = !chips.length;
+  $("usual-chips").innerHTML = chips.join("");
+  const v = snapshot.voice;
+  $("pitch").hidden = !(v && v.pitch_hz);
+  if (v?.pitch_hz) $("pitch").textContent = `pitch ${v.pitch_hz} Hz` + (v.loudness != null ? ` · ${v.loudness} dBFS` : "");
+}
+
 function renderNow(snapshot) {
   $("key").hidden = $("scale").hidden = false;
+  renderHeadline(snapshot.learning_state);
+  renderUsual(snapshot);
   $("dims").innerHTML = dimsOf(snapshot).map((dim) => {
     const d = snapshot.dimensions[dim];
     // The band grows as the model gets less sure of this turn's reading.
@@ -70,7 +106,8 @@ function renderEvidence(e) {
     cell(e.waited?.toFixed(1), "s", "wait before answering"),
   ].join("");
   $("spoke").hidden = e.words == null;
-  if (e.words != null) $("spoke").textContent = `${e.words} ${e.words === 1 ? "word" : "words"} in ${e.seconds.toFixed(1)} s`;
+  if (e.words != null) $("spoke").textContent = `${e.words} ${e.words === 1 ? "word" : "words"} in ${e.seconds.toFixed(1)} s`
+    + (e.hedges ? ` · ${e.hedges} ${e.hedges === 1 ? "hedge" : "hedges"}` : "");
 }
 
 // Math: text between dollar signs is LaTeX, drawn by KaTeX. If KaTeX did not load,
@@ -131,12 +168,15 @@ function renderTrace() {
   const n = Math.max(history.length, 12);
   const colW = (W - padL - padR) / n;
   const x = (i) => padL + (i + 0.5) * colW;
-  const rowsBottom = top + dims.length * rowH;
+  const hasState = history.some((s) => s.learning_state);
+  const stateH = hasState ? 34 : 0;
+  const rowsTop = top + stateH;
+  const rowsBottom = rowsTop + dims.length * rowH;
   const H = rowsBottom + moveH + 18;
   const cols = history.map((s, i) =>
     `<rect class="col" data-i="${i}" x="${padL + i * colW}" y="0" width="${colW}" height="${rowsBottom + moveH}"/>`).join("");
   const rows = dims.map((dim, r) => {
-    const y0 = top + r * rowH, y = (v) => y0 + rowH - 8 - clamp(v) * (rowH - 16);
+    const y0 = rowsTop + r * rowH, y = (v) => y0 + rowH - 8 - clamp(v) * (rowH - 16);
     const pts = history.map((s, i) => ({ i, d: s.dimensions[dim] })).filter((p) => p.d);
     const line = pts.map((p) => `${x(p.i)},${y(p.d.estimate)}`).join(" ");
     const marks = pts.map((p) => {
@@ -150,6 +190,9 @@ function renderTrace() {
       <text class="row" x="14" y="${y0 + rowH / 2}">${esc(dim)}</text>
       <polyline points="${line}" fill="none" stroke="${colorOf(dim)}" stroke-width="2" stroke-linejoin="round" opacity=".55"/>${marks}`;
   }).join("");
+  const pill = (cx, cy, w, fill, label) => `<rect x="${cx - w / 2}" y="${cy}" width="${w}" height="18" fill="${fill}"/>
+    <text x="${cx}" y="${cy + 13}" text-anchor="middle" style="fill:#fff;font-size:11px;font-weight:600">${esc(label)}</text>`;
+  const pillW = Math.min(colW - 6, 74);
   // A move belongs to the column of the newest reading the tutor could have had.
   const byCol = new Map();
   for (const m of moves) if (m.after > 0) byCol.set(m.after - 1, m.move);
@@ -157,12 +200,15 @@ function renderTrace() {
     <text class="row" x="0" y="${rowsBottom + 24}">Tutor</text>` +
     [...byCol].map(([i, move]) => {
       const label = MOVE_SHORT[move] ?? move;
-      return `<rect x="${x(i) - Math.min(colW - 6, 74) / 2}" y="${rowsBottom + 11}" width="${Math.min(colW - 6, 74)}" height="18" fill="var(--ink)"/>
-        <text x="${x(i)}" y="${rowsBottom + 24}" text-anchor="middle" style="fill:#fff;font-size:11px;font-weight:600">${esc(colW < 60 ? label.slice(0, 6) : label)}</text>`;
+      return pill(x(i), rowsBottom + 11, pillW, "var(--ink)", colW < 60 ? label.slice(0, 6) : label);
     }).join("");
+  const stateRow = !hasState ? "" : `<text class="row" x="0" y="${top + 17}">State</text>` +
+    history.map((s, i) => s.learning_state
+      ? pill(x(i), top + 4, pillW, stateColor(s.learning_state.state), colW < 60 ? s.learning_state.state.slice(0, 5) : s.learning_state.state)
+      : "").join("");
   const ticks = history.map((s, i) => `<text x="${x(i)}" y="${H - 2}" text-anchor="middle">${s.turn}</text>`).join("");
   $("trace").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-    aria-label="Smoothed estimate and per-turn readings for each dimension, with the tutor's move, by turn">${cols}${rows}${moveRow}${ticks}</svg>`;
+    aria-label="Smoothed estimate and per-turn readings for each dimension, with the tutor's move, by turn">${cols}${stateRow}${rows}${moveRow}${ticks}</svg>`;
   $("trace").querySelectorAll(".col").forEach((col) => {
     col.addEventListener("mouseenter", () => showTip(col));
     col.addEventListener("mouseleave", () => { $("tip").hidden = true; col.classList.remove("on"); });
@@ -178,7 +224,9 @@ function showTip(col) {
   }).join("");
   const turnMoves = moves.filter((m) => m.after === i + 1).map((m) => MOVE_TEXT[m.move] ?? m.move);
   const tip = $("tip");
-  tip.innerHTML = `<b>Turn ${s.turn}</b>${rows}${turnMoves.length ? `<div><span>tutor</span><span>${esc(turnMoves.join(", "))}</span></div>` : ""}`;
+  const ls = s.learning_state;
+  const stateLine = ls ? `<div><span>state</span><span>${esc(ls.state)} (${Math.round(ls.certainty * 100)}%)</span></div>` : "";
+  tip.innerHTML = `<b>Turn ${s.turn}</b>${stateLine}${rows}${turnMoves.length ? `<div><span>tutor</span><span>${esc(turnMoves.join(", "))}</span></div>` : ""}`;
   tip.hidden = false;
   const box = $("trace").getBoundingClientRect(), r = col.getBoundingClientRect(), host = tip.parentElement.getBoundingClientRect();
   const left = r.right - host.left + 8;
