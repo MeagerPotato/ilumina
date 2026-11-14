@@ -33,8 +33,12 @@
   }
   button:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   button[disabled] { opacity: .55; cursor: default; }
-  .session { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+  .session { display: flex; align-items: center; gap: 10px 16px; margin-left: auto; flex-wrap: wrap; }
   .status { color: var(--muted); font-size: 15px; }
+  .mic { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 15px; }
+  .mic .level { width: 72px; height: 10px; border: 1.5px solid var(--ink); border-radius: 5px; overflow: hidden; background: var(--panel); }
+  .mic .level i { display: block; height: 100%; width: 0; background: var(--confidence); transition: width .25s; }
+  .mic.silent { color: var(--warn); }
   .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
@@ -107,7 +111,7 @@
 
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } h1 { font-size: 40px; } }
   @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } }
-  @media (prefers-reduced-motion: reduce) { .track * { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) { .track *, .mic .level i { transition: none !important; } }
 </style>
 </head>
 <body>
@@ -116,6 +120,7 @@
     <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
     <div class="session">
+      <span class="mic" id="mic" hidden><span class="level" role="img" aria-label="Microphone level"><i id="mic-fill"></i></span><span id="mic-text"></span></span>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>

@@ -1,13 +1,16 @@
 """Pipecat processors: voice evidence, camera view and state note in, teaching move out."""
 
 import asyncio
+import math
 import time
 
+import numpy as np
 from loguru import logger
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     Frame,
+    InputAudioRawFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -98,6 +101,57 @@ class CameraView(FrameProcessor):
         )
         self._shown = context.get_messages()[-1]
         return True
+
+
+# Quieter than this, in dB below full scale, the microphone is sending near silence.
+SILENT_BELOW_DBFS = -50
+_LEVEL_EVERY_SECONDS, _LOG_EVERY_LEVELS = 1.0, 5
+
+
+class MicLevel(FrameProcessor):
+    """Sits right after the transport input and reports how loud the microphone is.
+
+    Once a second it tells the dashboard the loudest moment of that second, and every
+    few seconds it logs it. This is the sound exactly as speech to text gets it, so a
+    silent microphone and a turn that was not detected can be told apart. Only a
+    level is measured; no audio is kept. Every frame passes through untouched.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._peak = 0  # loudest sample since the last report
+        self._since = time.monotonic()
+        self._reports = 0
+        self._loudest_logged = SILENT_BELOW_DBFS * 2
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame) and frame.audio:
+            try:
+                samples = np.frombuffer(frame.audio, dtype=np.int16)
+                self._peak = max(self._peak, int(np.abs(samples.astype(np.int32)).max()))
+                if time.monotonic() - self._since >= _LEVEL_EVERY_SECONDS:
+                    await self._report()
+            except Exception as e:  # noqa: BLE001 - the meter must never cost a frame of audio
+                logger.debug(f"Mic level not measured: {e}")
+        await self.push_frame(frame, direction)
+
+    async def _report(self):
+        dbfs = round(20 * math.log10(max(self._peak, 1) / 32768))
+        self._peak, self._since = 0, time.monotonic()
+        self._reports += 1
+        self._loudest_logged = max(self._loudest_logged, dbfs)
+        if self._reports % _LOG_EVERY_LEVELS == 0:
+            logger.info(
+                f"Mic level: loudest {self._loudest_logged} dBFS in the last "
+                f"{_LOG_EVERY_LEVELS} seconds"
+            )
+            self._loudest_logged = SILENT_BELOW_DBFS * 2
+        await self.push_frame(
+            RTVIServerMessageFrame(
+                data={"type": "mic_level", "dbfs": dbfs, "silent": dbfs < SILENT_BELOW_DBFS}
+            )
+        )
 
 
 class VoiceEvidence(FrameProcessor):

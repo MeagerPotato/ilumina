@@ -1,9 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
+import numpy as np
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    InputAudioRawFrame,
     ProposedUserStartedSpeakingFrame,
     TranscriptionFrame,
 )
@@ -13,7 +15,7 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from ilumina import processors
 from ilumina.emotion import score_turn
 from ilumina.evidence import describe_evidence, voice_evidence
-from ilumina.processors import VoiceEvidence
+from ilumina.processors import MicLevel, VoiceEvidence
 
 
 def flux_turn(*words: tuple[str, float, float]) -> dict:
@@ -70,20 +72,20 @@ def test_the_line_for_the_scorer_says_only_what_was_measured():
     assert "1 word in" in short
 
 
-def run_frames(frames, clock) -> tuple[VoiceEvidence, list]:
-    """Feed frames through VoiceEvidence. `clock` gives the time each one arrives."""
+def run_frames(frames, clock, kind=VoiceEvidence) -> tuple:
+    """Feed frames through one processor. `clock` gives the time at each reading of it."""
 
     async def go():
-        evidence = VoiceEvidence()
+        processor = kind()
         out = []
 
         async def capture(frame, direction=FrameDirection.DOWNSTREAM):
             out.append(frame)
 
-        evidence.push_frame = capture
+        processor.push_frame = capture
         for frame in frames:
-            await VoiceEvidence.process_frame(evidence, frame, FrameDirection.DOWNSTREAM)
-        return evidence, out
+            await kind.process_frame(processor, frame, FrameDirection.DOWNSTREAM)
+        return processor, out
 
     # Swap the clock for processors.py only: asyncio reads the real one.
     times, real = iter(clock), processors.time
@@ -170,3 +172,33 @@ def test_the_scorer_gets_the_measurements_beside_the_conversation():
     asyncio.run(score_turn(client, "gemini-decision-1", b"RIFF", "Tutor: What is two x?", line))
     text = decisions.kwargs["input"][0]["text"]
     assert text.endswith(line) and "Tutor: What is two x?" in text
+
+
+def sound(peak: int) -> InputAudioRawFrame:
+    samples = np.zeros(320, dtype=np.int16)
+    samples[7] = peak
+    return InputAudioRawFrame(audio=samples.tobytes(), sample_rate=16000, num_channels=1)
+
+
+def test_the_mic_level_is_the_loudest_moment_of_each_second():
+    # Times: made at 0, then one reading per frame, then one more at each report.
+    frames = [sound(3), sound(-16384), sound(100), sound(0), sound(-32768)]
+    _, out = run_frames(frames, clock=[0.0, 0.4, 1.0, 1.0, 1.5, 2.0, 2.0, 2.4], kind=MicLevel)
+    levels = [f.data for f in out if isinstance(f, RTVIServerMessageFrame)]
+    assert levels == [
+        {"type": "mic_level", "dbfs": -6, "silent": False},  # half of full scale
+        {"type": "mic_level", "dbfs": -50, "silent": False},
+    ]
+    assert [f for f in out if not isinstance(f, RTVIServerMessageFrame)] == frames
+
+
+def test_a_dead_microphone_is_reported_as_silent():
+    _, out = run_frames([sound(0), sound(2)], clock=[0.0, 0.5, 1.2, 1.2], kind=MicLevel)
+    levels = [f.data for f in out if isinstance(f, RTVIServerMessageFrame)]
+    assert levels == [{"type": "mic_level", "dbfs": -84, "silent": True}]
+
+
+def test_audio_the_meter_cannot_read_still_reaches_speech_to_text():
+    odd = InputAudioRawFrame(audio=b"\x01\x02\x03", sample_rate=16000, num_channels=1)
+    _, out = run_frames([odd], clock=[0.0], kind=MicLevel)
+    assert out == [odd]

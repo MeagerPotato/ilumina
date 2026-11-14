@@ -142,6 +142,12 @@ function receive(msg) {
       $("scored").hidden = false;
       $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
     }
+  } else if (msg?.type === "mic_level") {
+    // How loud the bot hears the microphone, from 60 dB below full scale up to full scale.
+    $("mic").hidden = false;
+    $("mic").classList.toggle("silent", msg.silent);
+    $("mic-fill").style.width = pct((msg.dbfs + 60) / 60);
+    $("mic-text").textContent = msg.silent ? "Mic is silent" : "Mic is live";
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
@@ -256,7 +262,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
