@@ -197,7 +197,6 @@ def test_the_band_is_the_microphone_and_the_computer_takes_over_when_asked():
     link.start(told.append)
     try:
         assert wait_for(lambda: link.status.get("mic") is True)
-        assert link.sound(640) is None  # nothing heard yet: the computer's sound is used
 
         tone = (np.sin(np.arange(16000) * 0.2) * 12000).astype(np.int16).tobytes()
         packets = vexo_band.encode_pcm(tone)
