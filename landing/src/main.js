@@ -162,11 +162,13 @@ function start(renderer) {
     if (frozen === null) clock = to % DURATION;
     else frozen = to;
   }
+  // The "Try Ilumina" link keeps its own clicks and keys.
+  const onLink = (e) => e.target instanceof Element && e.target.closest('a');
   window.addEventListener('pointerdown', (e) => {
-    if (e.button === 0) advance();
+    if (e.button === 0 && !onLink(e)) advance();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || onLink(e)) return;
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
       advance();

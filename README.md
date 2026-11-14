@@ -36,6 +36,13 @@ The dashboard reads left to right: what Deepgram measured on the last turn, how 
 
 The first run downloads the voice activity model, so give it about 20 seconds.
 
+## Online demo
+
+The landing page, the dashboard and the bot are all hosted on Vercel: the landing page at
+`/`, the dashboard at `/app/` behind a passcode, and the bot as a Python function. Sessions
+there end after about 5 minutes (Vercel's function time limit), and the GoPro is local
+only. How it works and how to deploy: [docs/hosting.md](docs/hosting.md).
+
 ## Lecture capture with Vexo (no band needed)
 
 Ilumina can listen to a class, remember it, and plan study from it. Sound goes through the
@@ -77,6 +84,7 @@ All in `.env`:
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
 | `ILUMINA_CAMERA` | `browser` (default) or `gopro` for the head-worn GoPro over USB. Needs FFmpeg (`brew install ffmpeg`) |
 | `GOPRO_IP` | Only if the GoPro is not found by itself |
+| `ILUMINA_SESSION_SECONDS` | Hosted only: how long a session may last before the dashboard ends it. Default `0`, no limit |
 | `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/`. Default `off` |
 
 ## Layout
@@ -98,7 +106,9 @@ All in `.env`:
 | `ilumina/vexo_band.py` | Mic or file to band packets, through the Vexo band library |
 | `ilumina/transcribe.py` | A recorded lecture to text with Deepgram |
 | `ilumina/memory.py` | Lecture notes, opt-in memory, the tutor's memory note, study plans |
-| `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0 and `@pipecat-ai/small-webrtc-transport` 1.11.2 bundled with esbuild |
+| `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0, `@pipecat-ai/small-webrtc-transport` 1.11.2 and `@pipecat-ai/websocket-transport` 1.8.2 bundled with esbuild 0.25.0 |
+| `api/bot.py` | The hosted bot: a Vercel Function that checks the passcode and runs `bot.py` over a WebSocket |
+| `deploy/vercel/` | Files uploaded with each Vercel deployment; see [docs/hosting.md](docs/hosting.md) |
 
 ## Tests
 

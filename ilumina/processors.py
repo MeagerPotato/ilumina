@@ -1,11 +1,13 @@
 """Pipecat processors: voice evidence, camera view and state note in, teaching move out."""
 
 import asyncio
+import io
 import math
 import time
 
 import numpy as np
 from loguru import logger
+from PIL import Image
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -52,14 +54,14 @@ class CameraView(FrameProcessor):
     def __init__(self, headcam=None, **kwargs):
         super().__init__(**kwargs)
         self._headcam = headcam  # the head-worn GoPro, when it replaces the browser camera
-        self._latest: UserImageRawFrame | None = None
+        self._latest: tuple[str, tuple[int, int], bytes] | None = None
         self._latest_at = 0.0
         self._shown: dict | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, UserImageRawFrame):
-            self._latest = frame
+            self._latest = (frame.format, frame.size, frame.image)
             self._latest_at = time.monotonic()
             # Stop here: passed on, each frame would split the tutor's reply in the context.
             return
@@ -86,10 +88,22 @@ class CameraView(FrameProcessor):
         """(format, size, image) of a current picture, or None."""
         if self._headcam is not None:
             return self._headcam.picture()
-        frame = self._latest
-        if frame is None or time.monotonic() - self._latest_at > _MAX_FRAME_AGE_SECONDS:
+        if self._latest is None or time.monotonic() - self._latest_at > _MAX_FRAME_AGE_SECONDS:
             return None
-        return frame.format, frame.size, frame.image
+        return self._latest
+
+    def take_jpeg(self, jpeg: bytes) -> None:
+        """A camera frame the dashboard sent as a JPEG message.
+
+        The hosted app talks to the bot over a WebSocket, which carries no video, so
+        the dashboard sends one still a second instead. It counts like a video frame.
+        """
+        image = Image.open(io.BytesIO(jpeg))
+        if image.width * image.height > 1280 * 1280:
+            raise ValueError(f"camera still is too large: {image.size}")
+        image = image.convert("RGB")
+        self._latest = ("RGB", image.size, image.tobytes())
+        self._latest_at = time.monotonic()
 
     async def _show(self, context) -> bool:
         picture = self._newest()

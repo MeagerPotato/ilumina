@@ -1,0 +1,11 @@
+# Python packages for the hosted bot (api/bot.py) on Vercel. Uploaded as the
+# deployment's requirements.txt; see docs/hosting.md. Versions match uv.lock.
+# Leaves out what only local runs need: WebRTC, the GoPro feed and the Vexo band.
+pipecat-ai[deepgram,google,silero,websocket]==1.16.0
+google-genai==3.3.0
+fastapi==0.163.0
+uvicorn[standard]==0.54.0
+python-dotenv==1.2.4
+certifi==2026.10.23
+pillow==13.0.0
+numpy==2.5.4

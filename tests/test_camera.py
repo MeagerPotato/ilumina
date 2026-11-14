@@ -145,3 +145,32 @@ def test_head_camera_that_is_off_shows_nothing_even_if_the_browser_sent_a_frame(
     context, seen = run_with_headcam(FakeHeadCam(None), [camera_frame(), student_turn("hello")])
     assert seen == [False]
     assert images_in(context) == 0
+
+
+def test_a_jpeg_sent_by_the_hosted_dashboard_is_shown_like_a_video_frame():
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (8, 6), "white").save(out, "JPEG")
+    jpeg = out.getvalue()
+
+    async def go():
+        view = CameraView()
+        out = []
+
+        async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+            out.append(frame)
+
+        view.push_frame = capture
+        context = LLMContext()
+        view.take_jpeg(jpeg)
+        await CameraView.process_frame(
+            view, student_turn("Here is my work")(context), FrameDirection.DOWNSTREAM
+        )
+        return context, [f.data["seen"] for f in out if isinstance(f, RTVIServerMessageFrame)]
+
+    context, seen = asyncio.run(go())
+    assert seen == [True]
+    assert images_in(context) == 1

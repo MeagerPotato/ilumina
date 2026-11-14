@@ -26,3 +26,8 @@ STATE_WAIT_SECONDS = 0.4
 # Opt-in: save tutoring sessions (the moments the student struggled) to memory/.
 # Lectures from the Vexo band are saved only when the student says yes in lecture.py.
 SAVE_MEMORY = (os.getenv("ILUMINA_MEMORY") or "off").lower() in ("on", "yes", "true", "1")
+
+# How long one session may last, in seconds. 0 (the default) is no limit. The hosted
+# app sets it a little under the Vercel Function's maximum duration, so the dashboard
+# can end the session cleanly before the connection is cut.
+SESSION_SECONDS = int(os.getenv("ILUMINA_SESSION_SECONDS") or 0)
