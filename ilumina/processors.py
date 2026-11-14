@@ -19,7 +19,8 @@ from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
 
 # A camera frame older than this is not shown to the tutor (camera off or stalled).
-_MAX_FRAME_AGE_SECONDS = 3.0
+# Frames arrive about a second apart, so this allows for one late frame.
+_MAX_FRAME_AGE_SECONDS = 2.0
 
 
 def _answers_student(frame: Frame) -> bool:
@@ -50,7 +51,10 @@ class CameraView(FrameProcessor):
         if isinstance(frame, UserImageRawFrame):
             self._latest = frame
             self._latest_at = time.monotonic()
-            return  # nothing after this needs the raw camera frames
+            # Stop here: passed on, each frame would split the tutor's reply in the context.
+            return
+        if isinstance(frame, LLMContextFrame) and not frame.speculation:
+            self._remove_shown(frame.context)
         if _answers_student(frame):
             try:
                 seen = await self._show(frame.context)
@@ -62,10 +66,13 @@ class CameraView(FrameProcessor):
             )
         await self.push_frame(frame, direction)
 
-    async def _show(self, context) -> bool:
+    def _remove_shown(self, context):
+        """Take the previous turn's picture out, so no reply sees an old one as current."""
         if self._shown is not None:
             context.set_messages([m for m in context.get_messages() if m is not self._shown])
             self._shown = None
+
+    async def _show(self, context) -> bool:
         frame = self._latest
         if frame is None or time.monotonic() - self._latest_at > _MAX_FRAME_AGE_SECONDS:
             return False
