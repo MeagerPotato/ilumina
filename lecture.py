@@ -1,9 +1,10 @@
 """Record a lecture through the Vexo band library and teach Ilumina from it.
 
-    uv run lecture.py record                  Mac mic as the band's mic; Ctrl+C to stop
-    uv run lecture.py record --seconds 60     stop after a minute
+    uv run lecture.py record --band 42        your Vexo band (its own mic, Bluetooth)
+    uv run lecture.py record --usb            your Vexo band on the USB cable
+    uv run lecture.py record                  no band: Mac mic as the band's mic
+    uv run lecture.py record --seconds 60     stop after a minute; Ctrl+C stops any time
     uv run lecture.py record --file talk.m4a  a recording instead of the live mic
-    uv run lecture.py record --band 42        a real Vexo band (its own mic, Bluetooth)
     uv run lecture.py record --text talk.txt  a transcript you already have, no sound
     uv run lecture.py plan                    a study plan from everything in memory
     uv run lecture.py show                    what Ilumina remembers
@@ -23,6 +24,7 @@ import certifi
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 from google import genai
+from vexo_open.sync import VexoError
 
 from ilumina import config, memory, vexo_band
 from ilumina.transcribe import to_wav, transcribe
@@ -56,8 +58,12 @@ def listen(args) -> str:
     missing = [k for k in ("DEEPGRAM_API_KEY", "GOOGLE_API_KEY") if not getattr(config, k)]
     if missing:
         sys.exit(f"Add {' and '.join(missing)} to .env first.")
-    if args.band:
-        print(f"Listening on Vexo band {args.band}. Double-tap it first so it can be found.")
+    if args.usb:
+        print("Listening on the Vexo band that is plugged in by USB cable.")
+        source = None
+    elif args.band:
+        print(f"Listening on Vexo band {args.band} over Bluetooth. Double-tap it now, so its")
+        print("light blinks blue and it can be found. Close anything else connected to it.")
         source = None
     elif args.file:
         print(f"Playing {args.file} through the Vexo pretend band (at real speed).")
@@ -72,9 +78,24 @@ def listen(args) -> str:
     def progress(seconds):
         print(f"\r  recording {int(seconds) // 60}:{int(seconds) % 60:02d}", end="", flush=True)
 
-    pcm = vexo_band.record(
-        source=source, seconds=args.seconds, band_number=args.band, on_progress=progress
-    )
+    try:
+        pcm = vexo_band.record(
+            source=source,
+            seconds=args.seconds,
+            band_number=args.band,
+            usb=args.usb,
+            on_progress=progress,
+        )
+    except VexoError as e:
+        if not (args.band or args.usb):
+            raise
+        # The lecture is still happening, so do not lose it: listen on this computer.
+        print(f"\nThe band did not connect: {e}")
+        print("Listening on this computer's microphone as the band's microphone instead.")
+        args.band, args.usb = None, False  # what gets saved says where the sound came from
+        pcm = vexo_band.record(
+            source=vexo_band.mic_packets(), seconds=args.seconds, on_progress=progress
+        )
     print(f"\nGot {len(pcm) / 32000:.0f} seconds of sound. Sending it to Deepgram for text...")
     try:
         transcript = transcribe(pcm, config.DEEPGRAM_API_KEY)
@@ -110,7 +131,8 @@ def record(args) -> None:
         if args.text:
             source_name = f"text file {args.text}"
         else:
-            source_name = f"band {args.band}" if args.band else (args.file or "computer mic")
+            band = "Vexo band on USB" if args.usb else args.band and f"Vexo band {args.band}"
+            source_name = band or args.file or "computer mic"
         path = memory.save(
             "lectures", {"source": source_name, "transcript": transcript, "notes": notes}
         )
@@ -152,7 +174,8 @@ def main() -> None:
     rec = sub.add_parser("record", help="record a lecture")
     rec.add_argument("--seconds", type=float, help="stop after this many seconds")
     rec.add_argument("--file", help="a sound file to use instead of the live microphone")
-    rec.add_argument("--band", type=int, help="number of a real Vexo band to listen to")
+    rec.add_argument("--band", type=int, help="number of your Vexo band (Bluetooth)")
+    rec.add_argument("--usb", action="store_true", help="your Vexo band on the USB cable")
     rec.add_argument("--text", help="a transcript in a text file, instead of sound")
     rec.add_argument("--save", action="store_true", help="save to memory without asking")
     rec.set_defaults(run=record)

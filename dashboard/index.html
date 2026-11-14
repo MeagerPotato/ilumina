@@ -169,6 +169,7 @@
         <label><input type="radio" name="mode" value="review">Lecture review</label>
       </fieldset>
       <span class="mic" id="mic" hidden><span class="level" role="img" aria-label="Microphone level"><i id="mic-fill"></i></span><span id="mic-text"></span></span>
+      <span class="status" id="band" role="status" hidden></span>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>
@@ -185,7 +186,7 @@
     <button id="ask-save">Save and end</button>
     <button id="ask-skip" class="quiet">End without saving</button>
   </div>
-  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. It also checks each step you give for mistakes. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
+  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. It also checks each step you give for mistakes. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.<span id="band-consent" hidden> From your Vexo band, Ilumina only reads double taps and sets its light. The band's microphone stays off in a session.</span></p>
 
   <div class="cols">
     <div class="stack">

@@ -170,11 +170,15 @@ let micTimer;
 const STAGES = {
   starting: ["Getting ready", "Ilumina is about to say hello."],
   listening: ["Your turn", "Ilumina is listening."],
-  hearing: ["Hearing you", "Press Done talking to send it now."],
+  hearing: ["Hearing you", ""], // the hint is howToSend(), which knows about the band
   thinking: ["Heard you", "Ilumina is thinking."],
   speaking: ["Ilumina is speaking", "Talk over it to interrupt."],
 };
 const NO_ANSWER_AFTER_MS = 12000;
+// With the Vexo band connected, a double tap on the wrist does what the button does.
+let bandOn = false;
+const howToSend = () => bandOn ? "double-tap your band or press Done talking" : "press Done talking";
+const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 let stageNow = null, heardText = "", userSpeaking = false;
 let micPaused = false, turnEnded = false, micGraceUntil = 0, quietTimer, thinkTimer;
 
@@ -187,7 +191,8 @@ function setStage(stage, hint, quiet = false) {
   $("stage").hidden = !stage;
   if (!stage) return;
   if (stage !== "hearing") heardText = "";
-  const [name, usual] = STAGES[stage];
+  const [name, usual] = stage === "hearing"
+    ? [STAGES.hearing[0], `${sentence(howToSend())} to send it now.`] : STAGES[stage];
   $("stage").dataset.stage = stage;
   $("stage-name").textContent = name;
   $("stage-hint").textContent = hint ?? usual;
@@ -217,7 +222,7 @@ function hearing(text) {
   setStage("hearing", words ? `Heard so far: "${words.length > 70 ? "…" + words.slice(-70) : words}"` : undefined, Boolean(words));
   // In a loud room Flux can wait a long time to be sure the turn is over. Say so.
   quietTimer = setTimeout(() => {
-    setStage("hearing", "No new words. Waiting to be sure you have finished, or press Done talking.");
+    setStage("hearing", `No new words. Waiting to be sure you have finished, or ${howToSend()}.`);
   }, 2500);
 }
 
@@ -280,6 +285,17 @@ function receive(msg) {
       $("mic-fill").style.width = "0";
       $("mic-text").textContent = "No sound is arriving";
     }, 3000);
+  } else if (msg?.type === "band") {
+    // The student's Vexo band: found or not, and its battery.
+    bandOn = msg.state === "connected";
+    const name = msg.number ? `Vexo band ${msg.number}` : "Vexo band";
+    $("band").hidden = msg.state === "off";
+    $("band-consent").hidden = false;
+    $("band").textContent = bandOn
+      ? `${name} is connected${msg.battery == null ? "" : `, battery ${msg.battery}%`}`
+      : msg.number ? `${name}: double-tap it to connect` : `${name}: plug in its cable`;
+  } else if (msg?.type === "band_tap") {
+    doneTalking(); // only does something while Ilumina is hearing the student
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
@@ -478,7 +494,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("band").hidden = true; bandOn = false; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
