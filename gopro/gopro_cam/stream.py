@@ -246,6 +246,15 @@ class GoProFeed:
         return "stopped" if self._stop.is_set() else result["why"]
 
     def _supervise(self):
+        try:
+            self._run()
+        finally:
+            # stop() can arrive while _connect is still starting the preview, which
+            # would leave the camera streaming and the keep-alive pinging forever.
+            if self.http:
+                self.http.close()
+
+    def _run(self):
         backoff = 1.0
         while not self._stop.is_set():
             try:

@@ -25,8 +25,11 @@ function renderNow(snapshot) {
     // Band half-width grows as the model gets less sure of its reading.
     const half = 0.04 + (1 - d.confidence) * 0.22;
     const left = Math.max(0, d.reading - half), right = Math.min(1, d.reading + half);
+    // The percentage is about this turn's reading, which on a blip is not the level shown.
+    const sure = `${Math.round(d.confidence * 100)}% sure`;
+    const read = d.seen === d.level ? sure : `this turn read ${d.seen}, ${sure}`;
     return `<div class="dim">
-      <div class="name">${dim}<small>${d.level}, ${Math.round(d.confidence * 100)}% sure</small></div>
+      <div class="name">${dim}<small>${d.level}, ${read}</small></div>
       <div class="track" role="img" aria-label="${dim}: ${d.level}, estimate ${d.estimate}, reading ${d.reading}">
         <span class="zone" style="left:35%"></span><span class="zone" style="left:65%"></span>
         <span class="band" style="left:${pct(left)};width:${pct(right - left)};background:${color(dim)}"></span>
@@ -80,7 +83,7 @@ function receive(msg) {
     $("note").textContent = msg.note ?? "";
     if (msg.scored_ms != null) {
       $("scored").hidden = false;
-      $("scored").textContent = `This turn was scored from your voice in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
+      $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
     }
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
@@ -94,8 +97,10 @@ function receive(msg) {
     $("running").hidden = false;
     $("running").textContent =
       `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
-      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound.`;
-  } else if (msg?.type === "camera_view" && client?.isCamEnabled) {
+      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
+    headcam = msg.camera === "gopro";
+    if (headcam) $("cam-hint").textContent = "Wear the GoPro and look at your page so Ilumina can read the problem and your working.";
+  } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {
     $("cam-seen").textContent = msg.seen
       ? "Ilumina got a picture with your last turn."
       : "Ilumina did not get a picture with your last turn.";
@@ -125,8 +130,44 @@ function resetCamera(message) {
   $("cam-seen").textContent = message;
 }
 
+// Head camera (GoPro). The bot says in session_info when it is the camera in use.
+// The bot owns the feed; the dashboard switches it and shows the newest frame.
+let headcam = false, headcamTimer;
+async function showHeadcamFrame() {
+  const r = await fetch("/headcam/frame.jpg", { cache: "no-store" }).catch(() => null);
+  if (!headcamTimer) return; // turned off while this was on its way
+  const img = $("cam-img");
+  if (r?.status === 200) {
+    const old = img.src;
+    img.src = URL.createObjectURL(await r.blob());
+    if (old) URL.revokeObjectURL(old);
+    if (img.hidden) $("cam-seen").textContent = "Head camera is on. Ilumina gets a picture when you next speak.";
+    img.hidden = false;
+    $("cam-off").hidden = true;
+  } else {
+    img.hidden = true;
+    $("cam-off").hidden = false;
+    const status = r?.headers.get("X-Headcam-Status");
+    $("cam-off").textContent = status ? `Waiting for the GoPro (${status})` : "Waiting for the GoPro";
+  }
+}
+
+function setHeadcam(on) {
+  clearInterval(headcamTimer);
+  headcamTimer = on ? setInterval(showHeadcamFrame, 500) : undefined;
+  fetch(`/headcam/${on ? "on" : "off"}`, { method: "POST" }).catch(console.error);
+  $("cam-toggle").textContent = on ? "Turn camera off" : "Turn camera on";
+  $("cam-img").hidden = true;
+  $("cam-off").hidden = false;
+  $("cam-off").textContent = on ? "Waiting for the GoPro" : "Camera is off";
+  $("cam-seen").textContent = on
+    ? "Starting the head camera."
+    : "Camera is off. Ilumina hears you but sees nothing.";
+}
+
 function toggleCamera() {
   if (!client) return;
+  if (headcam) return setHeadcam(!headcamTimer);
   const on = !client.isCamEnabled;
   client.enableCam(on);
   if (on) {
@@ -154,7 +195,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
@@ -210,5 +251,7 @@ async function toggle() {
 
 $("connect").addEventListener("click", toggle);
 $("cam-toggle").addEventListener("click", toggleCamera);
+// A closed or reloaded page cannot click "off", so say it on the way out.
+window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, showCamera, setHeadcam }; // lets checks feed recorded messages and a camera track

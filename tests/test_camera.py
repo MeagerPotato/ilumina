@@ -106,3 +106,42 @@ def test_a_reply_that_is_not_to_the_student_drops_the_old_picture():
     context, seen, _ = run([camera_frame(), student_turn("first"), nudge])
     assert seen == [True]
     assert images_in(context) == 0
+
+
+class FakeHeadCam:
+    def __init__(self, picture):
+        self._picture = picture
+
+    def picture(self):
+        return self._picture
+
+
+def run_with_headcam(headcam, steps: list) -> tuple[LLMContext, list[bool]]:
+    async def go():
+        view = CameraView(headcam=headcam)
+        out = []
+
+        async def capture(frame, direction=FrameDirection.DOWNSTREAM):
+            out.append(frame)
+
+        view.push_frame = capture
+        context = LLMContext()
+        for step in steps:
+            frame = step(context) if callable(step) else step
+            await CameraView.process_frame(view, frame, FrameDirection.DOWNSTREAM)
+        return context, [f.data["seen"] for f in out if isinstance(f, RTVIServerMessageFrame)]
+
+    return asyncio.run(go())
+
+
+def test_head_camera_picture_is_shown_instead_of_the_browser_camera():
+    headcam = FakeHeadCam(("RGB", (4, 4), bytes(4 * 4 * 3)))
+    context, seen = run_with_headcam(headcam, [student_turn("what is this one asking?")])
+    assert seen == [True]
+    assert images_in(context) == 1
+
+
+def test_head_camera_that_is_off_shows_nothing_even_if_the_browser_sent_a_frame():
+    context, seen = run_with_headcam(FakeHeadCam(None), [camera_frame(), student_turn("hello")])
+    assert seen == [False]
+    assert images_in(context) == 0

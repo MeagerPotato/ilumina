@@ -41,8 +41,9 @@ class CameraView(FrameProcessor):
     here fails, the tutor simply answers without a picture.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, headcam=None, **kwargs):
         super().__init__(**kwargs)
+        self._headcam = headcam  # the head-worn GoPro, when it replaces the browser camera
         self._latest: UserImageRawFrame | None = None
         self._latest_at = 0.0
         self._shown: dict | None = None
@@ -73,12 +74,22 @@ class CameraView(FrameProcessor):
             context.set_messages([m for m in context.get_messages() if m is not self._shown])
             self._shown = None
 
-    async def _show(self, context) -> bool:
+    def _newest(self) -> tuple[str, tuple[int, int], bytes] | None:
+        """(format, size, image) of a current picture, or None."""
+        if self._headcam is not None:
+            return self._headcam.picture()
         frame = self._latest
         if frame is None or time.monotonic() - self._latest_at > _MAX_FRAME_AGE_SECONDS:
+            return None
+        return frame.format, frame.size, frame.image
+
+    async def _show(self, context) -> bool:
+        picture = self._newest()
+        if picture is None:
             return False
+        format, size, image = picture
         await context.add_image_frame_message(
-            format=frame.format, size=frame.size, image=frame.image, text=CAMERA_NOTE
+            format=format, size=size, image=image, text=CAMERA_NOTE
         )
         self._shown = context.get_messages()[-1]
         return True
