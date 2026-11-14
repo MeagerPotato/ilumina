@@ -85,7 +85,7 @@ pipecat, deepgram, deepgram-flux, deepgram-aura, gemini, gemini-4, google-ai-stu
 
 - [ ] Project description: the sections above
 - [x] Public GitHub repo with code and a README: https://github.com/MeagerPotato/ilumina (public, README on main)
-- [ ] Demo video, up to 2 minutes: judges pick finalists from it, so treat it as required. YouTube, Unlisted
+- [ ] 1 minute demo video (optional, backup if the live demo fails): YouTube, Unlisted
 - [ ] Sponsor tracks: Google DeepMind Best Use of Gemini 4, Deepgram Best Voice on Pipecat, Vexo main track
 - [ ] Every commit pushed before 6:00 PM PT
 - Landing page: Aiden's page from PR 7, as screenshots in the image gallery (we are not hosting it)

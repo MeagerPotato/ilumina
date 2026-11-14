@@ -1,6 +1,6 @@
-# Finalist live demo (2 minutes, then 1 minute Q&A)
+# Live demo for judging (2 minutes, then 1 minute Q&A)
 
-Only needed if we make the finals. Say these in your own words. Before walking up: bot running, dashboard open, GoPro on the headband, problem already written big.
+In person, right after submissions close at 6 PM. This is the main pitch. Say these in your own words. Before walking up: bot running, dashboard open, GoPro on the headband, problem already written big.
 
 **Hook (0:00–0:15)**
 - AI tutors hear what you say, not how you say it
@@ -26,7 +26,7 @@ Only needed if we make the finals. Say these in your own words. Before walking u
 - A tutor that notices when you're lost, even when you say you're fine
 
 ## If the live demo breaks
-- Play the Devpost video from the desktop
+- Play the 1 minute backup video from the desktop
 
 ## Q&A prep
 - **Creepy or wrong?** Estimate of how you sound, not how you feel. Only changes the teaching move. Nothing saved without a yes, pictures never stored.
