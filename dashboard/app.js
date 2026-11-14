@@ -78,6 +78,10 @@ function receive(msg) {
     renderTrace();
     $("note").classList.remove("stale");
     $("note").textContent = msg.note ?? "";
+    if (msg.scored_ms != null) {
+      $("scored").hidden = false;
+      $("scored").textContent = `This turn was scored from your voice in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
+    }
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
@@ -86,6 +90,51 @@ function receive(msg) {
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
     $("note").textContent =
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
+  } else if (msg?.type === "session_info") {
+    $("running").hidden = false;
+    $("running").textContent =
+      `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
+      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound.`;
+  } else if (msg?.type === "camera_view" && client?.isCamEnabled) {
+    $("cam-seen").textContent = msg.seen
+      ? "Ilumina got a picture with your last turn."
+      : "Ilumina did not get a picture with your last turn.";
+  }
+}
+
+// Camera controls. The camera is optional and never blocks the voice session.
+function showCamera(track) {
+  $("cam-video").srcObject = track ? new MediaStream([track]) : null;
+  $("cam-video").hidden = !track;
+  $("cam-off").hidden = Boolean(track);
+  $("cam-toggle").textContent = track ? "Turn camera off" : "Turn camera on";
+  if (!track) $("cam-pick").hidden = true;
+}
+
+function listCameras(cams) {
+  const pick = $("cam-pick");
+  pick.replaceChildren(...cams.map((cam, i) => new Option(cam.label || `Camera ${i + 1}`, cam.deviceId)));
+  const current = client?.selectedCam?.deviceId;
+  if (current) pick.value = current;
+  pick.hidden = $("cam-video").hidden || cams.length < 2;
+}
+
+function resetCamera(message) {
+  showCamera(null);
+  $("cam-toggle").disabled = !client;
+  $("cam-seen").textContent = message;
+}
+
+function toggleCamera() {
+  if (!client) return;
+  const on = !client.isCamEnabled;
+  client.enableCam(on);
+  if (on) {
+    // The button now says what a click does while the camera is still starting.
+    $("cam-toggle").textContent = "Turn camera off";
+    $("cam-seen").textContent = "Starting the camera. Allow it if the browser asks.";
+  } else {
+    resetCamera("Camera is off. Ilumina hears you but sees nothing.");
   }
 }
 
@@ -104,8 +153,8 @@ async function toggle() {
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; },
+      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
+      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
@@ -116,9 +165,28 @@ async function toggle() {
         addLine("Ilumina", o.text);
       },
       onTrackStarted: (track, participant) => {
+        if (track.kind === "video" && participant?.local) {
+          showCamera(track);
+          $("cam-seen").textContent = "Camera is on. Ilumina gets a picture when you next speak.";
+          client.getAllCams().then(listCameras).catch(console.error);
+          return;
+        }
         if (track.kind !== "audio" || participant?.local) return;
         if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
         $("bot-audio").srcObject = new MediaStream([track]);
+      },
+      onTrackStopped: (track, participant) => {
+        if (track.kind === "video" && participant?.local) showCamera(null);
+      },
+      onAvailableCamsUpdated: listCameras,
+      onCamUpdated: (cam) => { if (cam?.deviceId) $("cam-pick").value = cam.deviceId; },
+      onDeviceError: (e) => {
+        // Only a camera the student asked for counts; a microphone fault is not a camera problem.
+        if (!client?.isCamEnabled || !e?.devices?.includes("cam")) return;
+        client.enableCam(false);
+        resetCamera(e.type === "permissions"
+          ? "The browser blocked the camera. Allow it in the address bar, then try again."
+          : "The camera could not be turned on. Ilumina carries on by voice.");
       },
       onError: (e) => {
         console.error(e);
@@ -141,4 +209,6 @@ async function toggle() {
 }
 
 $("connect").addEventListener("click", toggle);
-window.ilumina = { receive }; // lets tests feed recorded messages
+$("cam-toggle").addEventListener("click", toggleCamera);
+$("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
+window.ilumina = { receive, showCamera }; // lets checks feed recorded messages and a camera track
