@@ -44,6 +44,7 @@ the same code listens to the band over Bluetooth.
 ```bash
 uv run lecture.py record              # Mac mic; press Ctrl+C when the lecture ends
 uv run lecture.py record --file class.m4a   # or a recording (plays at real speed)
+uv run lecture.py record --text class.txt   # or a transcript you already have (skips the band and Deepgram)
 uv run lecture.py plan                # a 3-day study plan from what Ilumina remembers
 uv run lecture.py show                # what Ilumina remembers
 uv run lecture.py forget              # delete it all
@@ -53,7 +54,8 @@ After a recording: Deepgram turns the sound into text, Gemini writes study notes
 likely sticking points, check questions), and you are asked whether to save them. **Nothing
 is saved on your computer unless you say yes.** The sound does go to Deepgram, and the text
 to Google Gemini, before you are asked. Saved lectures go to the local `memory/` folder (never in
-git), and the tutor is told about them at the start of the next session. With
+git), and the tutor is told about them at the start of the next session: it opens from the
+most recent class, and the dashboard shows the classes it remembers and the study plan. With
 `ILUMINA_MEMORY=on` in `.env`, the tutor also saves the moments a student sounded confused
 or frustrated, and `plan` puts those first. The first time, macOS asks to let Terminal use
 the microphone: click Allow.

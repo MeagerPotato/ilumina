@@ -18,6 +18,7 @@ from google import genai
 from google.genai import types
 
 MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
+PLAN_PATH = MEMORY_DIR / "study-plan.md"
 
 NOTES_SCHEMA = {
     "type": "object",
@@ -170,6 +171,26 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
                 f"{str(moment.get('said', ''))[:200]}"
             )
     return "\n".join(lines)
+
+
+def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:
+    """What the dashboard shows of memory: the same lectures the tutor is told about,
+    and the newest study plan if one was made. Notes only, never a transcript."""
+    lectures = []
+    for lec in load("lectures", limit, root):
+        n = lec.get("notes") or {}
+        lectures.append(
+            {
+                "title": n.get("title", "untitled"),
+                "subject": n.get("subject", ""),
+                "concepts": [c.get("name", "") for c in n.get("key_concepts", [])[:6]],
+            }
+        )
+    try:
+        plan = (root / PLAN_PATH.name).read_text().strip()
+    except OSError:
+        plan = ""
+    return {"lectures": lectures, "plan": plan}
 
 
 def _lectures_text(lectures: list[dict]) -> str:

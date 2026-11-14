@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 from vexo_open import audio
 
+import lecture
 from ilumina import memory, transcribe, vexo_band
 
 
@@ -114,3 +115,35 @@ def test_a_damaged_memory_file_is_skipped(tmp_path):
         "lectures", {"source": "mic", "transcript": "t", "notes": memory.empty_notes()}, tmp_path
     )
     assert "Untitled lecture" in memory.tutor_note(tmp_path)
+
+
+def test_the_dashboard_overview_has_notes_and_the_plan_but_never_the_transcript(tmp_path):
+    assert memory.overview(tmp_path) == {"lectures": [], "plan": ""}
+    memory.save(
+        "lectures", {"source": "mic", "transcript": "SECRET WORDS", "notes": NOTES}, tmp_path
+    )
+    (tmp_path / "study-plan.md").write_text("## Day 1\nPower rule\n")
+    overview = memory.overview(tmp_path)
+    assert overview == {
+        "lectures": [{"title": "Derivatives", "subject": "Calculus", "concepts": ["Power rule"]}],
+        "plan": "## Day 1\nPower rule",
+    }
+    assert "SECRET WORDS" not in json.dumps(overview)
+
+
+def test_a_text_transcript_is_read_without_the_band_or_deepgram(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(lecture.config, "GOOGLE_API_KEY", "k")
+    monkeypatch.setattr(lecture.config, "DEEPGRAM_API_KEY", None)  # not needed for text
+    talk = tmp_path / "talk.txt"
+    talk.write_text("\n  Today: the product rule.  \n")
+    assert lecture.read_text(str(talk)) == "Today: the product rule."
+    assert "did not come through the Vexo band" in capsys.readouterr().out
+
+    talk.write_text("   ")
+    for path in (talk, tmp_path / "missing.txt"):
+        try:
+            lecture.read_text(str(path))
+        except SystemExit as e:
+            assert str(path) in str(e)
+        else:
+            raise AssertionError("read_text() should have stopped")

@@ -62,7 +62,7 @@ from ilumina.processors import (
     TeachingMoveTagger,
     VoiceEvidence,
 )
-from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
+from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
 
 headcam = None
@@ -91,10 +91,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         await asyncio.to_thread(headcam.claim, session)
 
     try:
-        memory_note = memory.tutor_note()
+        memory_note, remembered = memory.tutor_note(), memory.overview()
     except Exception as e:  # noqa: BLE001 - memory is a bonus; the tutor must still start
         logger.warning(f"Could not read memory, starting without it: {e}")
-        memory_note = ""
+        memory_note, remembered = "", None
 
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
@@ -214,7 +214,12 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 }
             )
         )
-        context.add_message({"role": "developer", "content": GREETING_NOTE})
+        if remembered:
+            # What the tutor was told it remembers, so the student can see it too.
+            await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
+        opens_from_class = bool(remembered and remembered["lectures"])
+        greeting = GREETING_WITH_MEMORY_NOTE if opens_from_class else GREETING_NOTE
+        context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")

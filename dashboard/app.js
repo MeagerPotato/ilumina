@@ -56,6 +56,41 @@ function renderEvidence(e) {
   $("evidence").innerHTML = cells.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
 }
 
+// Memory: the classes the tutor was told about, and the study plan, as the bot sent them.
+// The text was written by a model from the student's own class, so it is escaped.
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function planHtml(markdown) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  let html = "", inList = false;
+  for (const raw of markdown.split("\n")) {
+    const line = raw.trim();
+    const item = line.match(/^(?:[-*]|\d+\.)\s+(.*)/);
+    if (item) {
+      html += `${inList ? "" : "<ul>"}<li>${inline(item[1])}</li>`;
+      inList = true;
+      continue;
+    }
+    if (inList) { html += "</ul>"; inList = false; }
+    const heading = line.match(/^#+\s+(.*)/);
+    if (heading) html += `<h4>${inline(heading[1])}</h4>`;
+    else if (line) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+function renderMemory(m) {
+  const classes = (m.lectures ?? []).map((c) => `<p class="class"><b>${esc(c.title)}</b>
+    <span>${esc([c.subject, (c.concepts ?? []).join(", ")].filter(Boolean).join(": "))}</span></p>`).join("");
+  if (!classes && !m.plan) {
+    $("memory").innerHTML = `<p class="empty">Nothing saved yet. Record a class and Ilumina opens the next session from it.</p>`;
+    return;
+  }
+  $("memory").innerHTML = classes
+    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
+    + `<p class="kept">Kept on this computer only, from classes you chose to save.</p>`;
+}
+
 function renderTrace() {
   const W = 1100, rowH = 84, padL = 110, padR = 20, top = 8;
   const n = Math.max(history.length, 8);
@@ -102,6 +137,8 @@ function receive(msg) {
     }
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
+  } else if (msg?.type === "memory") {
+    renderMemory(msg);
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
