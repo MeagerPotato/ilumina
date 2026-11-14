@@ -78,6 +78,10 @@ function receive(msg) {
     renderTrace();
     $("note").classList.remove("stale");
     $("note").textContent = msg.note ?? "";
+    if (msg.scored_ms != null) {
+      $("scored").hidden = false;
+      $("scored").textContent = `This turn was scored from your voice in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
+    }
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
@@ -86,6 +90,11 @@ function receive(msg) {
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
     $("note").textContent =
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
+  } else if (msg?.type === "session_info") {
+    $("running").hidden = false;
+    $("running").textContent =
+      `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
+      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound.`;
   } else if (msg?.type === "camera_view" && client?.isCamEnabled) {
     $("cam-seen").textContent = msg.seen
       ? "Ilumina got a picture with your last turn."

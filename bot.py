@@ -11,6 +11,7 @@ Run with:  uv run bot.py   then open http://localhost:7860/dashboard/
 """
 
 import os
+import time
 from pathlib import Path
 
 import certifi
@@ -127,9 +128,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         """Score the turn that just ended. A failure here never stops the tutor."""
         try:
             wav = pcm_to_wav(audio, sample_rate, num_channels)
+            started = time.monotonic()
             readings = await score_turn(
                 decisions_client, config.DECISION_MODEL, wav, recent_text(context)
             )
+            scored_ms = round((time.monotonic() - started) * 1000)
         except Exception as e:  # noqa: BLE001 - any emotion failure must not stop the voice loop
             logger.warning(f"Emotion scoring failed, tutor continues on last state: {e}")
             await worker.queue_frame(
@@ -143,7 +146,12 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.info(f"Student state: {snapshot}")
         await worker.queue_frame(
             RTVIServerMessageFrame(
-                data={"type": "student_state", "note": describe(snapshot), **snapshot}
+                data={
+                    "type": "student_state",
+                    "note": describe(snapshot),
+                    "scored_ms": scored_ms,
+                    **snapshot,
+                }
             )
         )
 
@@ -152,6 +160,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
     @worker.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
+        # Tell the dashboard which models this session is really running on.
+        await worker.queue_frame(
+            RTVIServerMessageFrame(
+                data={
+                    "type": "session_info",
+                    "tutor_model": config.GOOGLE_MODEL,
+                    "emotion_model": config.DECISION_MODEL,
+                }
+            )
+        )
         context.add_message({"role": "developer", "content": GREETING_NOTE})
         await worker.queue_frames([LLMRunFrame()])
 
