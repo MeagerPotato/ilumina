@@ -1,6 +1,6 @@
-# Ilumina live demo for judging (2 minutes, then 1 minute Q&A)
+# Ilumina finalist live demo (2 minutes, then 1 minute Q&A)
 
-Judging is 2 minutes of demo and 1 minute of questions, right after submissions close at 6 PM. Mostly show, barely tell. Lines in *italics* are actions. Allen drives the demo, Aiden talks (or swap).
+Only needed if we make the finals: judges first pick from the Devpost video (see demo-video.md), then finalists get 2 minutes of live demo and 1 minute of questions. Mostly show, barely tell. Lines in *italics* are actions. Allen drives the demo, Aiden talks (or swap).
 
 Have the bot running, the dashboard open on Start session, the GoPro on the headband and a problem already written big on paper before you walk up.
 
