@@ -34,6 +34,7 @@ class HeadCam:
     def __init__(self, feed_factory=_gopro_feed):
         self._feed_factory = feed_factory
         self._feed = None
+        self._owner = None  # the session that may turn the camera off when it ends
         self._lock = threading.Lock()
 
     @property
@@ -57,6 +58,20 @@ class HeadCam:
                     feed.stop()
                 except Exception as e:  # noqa: BLE001 - off must always leave the camera unused
                     logger.warning(f"GoPro feed did not stop cleanly: {e}")
+
+    def claim(self, session) -> None:
+        """A new session starts with the camera off, whatever an earlier one left on."""
+        self._owner = session
+        self.turn(False)
+
+    def release(self, session) -> None:
+        """Turn the camera off when its session ends.
+
+        An old session that ends late (a reloaded page takes a while to be noticed)
+        must not switch off the camera the student turned on in the new one.
+        """
+        if self._owner is session:
+            self.turn(False)
 
     def _newest(self) -> Image.Image | None:
         feed = self._feed

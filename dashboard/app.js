@@ -195,7 +195,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); headcam = false; resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
@@ -251,5 +251,7 @@ async function toggle() {
 
 $("connect").addEventListener("click", toggle);
 $("cam-toggle").addEventListener("click", toggleCamera);
+// A closed or reloaded page cannot click "off", so say it on the way out.
+window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
 window.ilumina = { receive, showCamera, setHeadcam }; // lets checks feed recorded messages and a camera track

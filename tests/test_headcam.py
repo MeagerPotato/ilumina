@@ -48,3 +48,28 @@ def test_a_stale_frame_is_not_a_picture():
     cam = HeadCam(feed_factory=lambda: FakeFeed(age_seconds=10))
     cam.turn(True)
     assert cam.picture() is None and cam.jpeg() is None
+
+
+def test_only_the_newest_session_turns_the_camera_off():
+    cam = HeadCam(feed_factory=FakeFeed)
+    old, new = object(), object()
+    cam.claim(old)
+    cam.turn(True)
+    cam.claim(new)  # a new session starts with the camera off
+    assert not cam.on
+    cam.turn(True)
+    cam.release(old)  # the old session ends late
+    assert cam.on
+    cam.release(new)
+    assert not cam.on
+
+
+def test_a_feed_that_fails_to_stop_still_counts_as_off():
+    class BrokenFeed(FakeFeed):
+        def stop(self):
+            raise RuntimeError("camera unplugged")
+
+    cam = HeadCam(feed_factory=BrokenFeed)
+    cam.turn(True)
+    cam.turn(False)
+    assert not cam.on and cam.picture() is None

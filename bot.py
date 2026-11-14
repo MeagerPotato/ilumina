@@ -78,6 +78,9 @@ def recent_text(context: LLMContext, limit: int = 6) -> str:
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
     logger.info(f"Starting Ilumina (tutor model: {config.GOOGLE_MODEL})")
+    session = object()
+    if headcam:
+        await asyncio.to_thread(headcam.claim, session)
 
     try:
         memory_note = memory.tutor_note()
@@ -209,12 +212,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         except Exception as e:  # noqa: BLE001 - never block shutting the session down
             logger.warning(f"Could not save this session to memory: {e}")
         finally:
-            if headcam:
-                # The camera stops with the session. The next student turns it on themselves.
-                await asyncio.to_thread(headcam.turn, False)
             await runner.cancel()
 
-    await runner.run()
+    try:
+        await runner.run()
+    finally:
+        if headcam:
+            # The camera stops with the session, however the session ended.
+            await asyncio.to_thread(headcam.release, session)
 
 
 async def bot(runner_args: RunnerArguments):
@@ -247,7 +252,8 @@ if __name__ == "__main__":
 
         def only_the_dashboard(request: Request):
             # Other websites open in the same browser must not switch or see the camera.
-            if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
+            same_site = request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
+            if not same_site or request.url.hostname not in ("localhost", "127.0.0.1"):
                 raise HTTPException(status_code=403)
 
         @app.post("/headcam/{state}")
