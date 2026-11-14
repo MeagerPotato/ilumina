@@ -4,6 +4,14 @@ import { PipecatClient, SmallWebRTCTransport } from "./vendor/pipecat.js";
 
 const DIMS = ["confusion", "frustration", "confidence", "engagement"];
 const STATUS_TEXT = { steady: "steady", blip: "blip, ignored", trend: "changed" };
+const MOVE_TEXT = {
+  continue: "Keep going",
+  smaller_hint: "Smaller hint",
+  new_explanation: "Explain it a different way",
+  worked_example: "Worked example",
+  harder_problem: "Raise the difficulty",
+  check_in: "Check in with the student",
+};
 const history = []; // one snapshot per scored turn
 
 const $ = (id) => document.getElementById(id);
@@ -70,6 +78,9 @@ function receive(msg) {
     renderTrace();
     $("note").classList.remove("stale");
     $("note").textContent = msg.note ?? "";
+  } else if (msg?.type === "teaching_move") {
+    $("move").hidden = false;
+    $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
     $("note").textContent = "The reading for this turn failed. Ally is using the last state it had.";

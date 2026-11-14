@@ -1,9 +1,16 @@
-"""Pipecat processor that hands the latest student state to the tutor model."""
+"""Pipecat processors: state note into the tutor, teaching move out of the tutor."""
 
 import asyncio
 
-from pipecat.frames.frames import Frame, LLMContextFrame
+from pipecat.frames.frames import (
+    Frame,
+    LLMContextFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMTextFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
 from ilumina.state import describe
 
@@ -49,4 +56,47 @@ class StudentStateInjector(FrameProcessor):
                     {"role": "developer", "content": describe(self._snapshot)}
                 )
                 self._fresh.clear()
+        await self.push_frame(frame, direction)
+
+
+# Longest opening we will hold back while looking for a move tag.
+_MAX_TAG_CHARS = 48
+
+
+class TeachingMoveTagger(FrameProcessor):
+    """Sits right after the LLM.
+
+    The tutor starts each reply with a tag such as ``[move: smaller_hint]``.
+    This removes the tag before it is spoken and reports the move to the
+    dashboard. A reply with no tag passes through untouched.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._held: str | None = None  # None means we are not looking for a tag
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._held = ""
+        elif isinstance(frame, LLMTextFrame) and self._held is not None:
+            self._held += frame.text
+            text = self._held.lstrip()
+            if text.startswith("[") and "]" in text:
+                tag, _, rest = text[1:].partition("]")
+                move = tag.removeprefix("move:").strip().lower()
+                await self.push_frame(
+                    RTVIServerMessageFrame(data={"type": "teaching_move", "move": move})
+                )
+                text = rest.lstrip()
+            elif not text or (text.startswith("[") and len(text) < _MAX_TAG_CHARS):
+                return  # keep holding until the tag closes or clearly is not one
+            self._held = None
+            if not text:
+                return
+            frame.text = text
+        elif isinstance(frame, LLMFullResponseEndFrame) and self._held:
+            # The reply ended while we were still holding text. Speak it.
+            await self.push_frame(LLMTextFrame(self._held), direction)
+            self._held = None
         await self.push_frame(frame, direction)

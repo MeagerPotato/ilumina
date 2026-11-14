@@ -60,6 +60,8 @@
 
   .note { margin: 0 0 14px; padding: 10px 12px; border-left: 4px solid var(--ink); background: var(--paper); font-size: 15.5px; }
   .note.stale { border-color: var(--warn); color: var(--warn); }
+  .move { margin: 0 0 14px; font-size: 20px; }
+  .move b { font-weight: 800; }
   .lines { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
   .lines li { padding: 6px 0; border-top: 1px solid var(--grid); }
   .lines li b { font-weight: 600; }
@@ -94,8 +96,9 @@
       </div>
     </section>
     <section aria-labelledby="talk-h">
-      <h2 id="talk-h">What Ally was told</h2>
+      <h2 id="talk-h">What Ally was told, and what it chose</h2>
       <p class="note" id="note">Nothing yet. Ally gets a one-line summary before each reply.</p>
+      <p class="move" id="move" hidden>Ally chose: <b id="move-name"></b></p>
       <ul class="lines" id="lines" aria-live="polite"></ul>
     </section>
   </div>

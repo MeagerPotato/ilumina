@@ -3,6 +3,8 @@
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
+Move path:    the tutor tags each reply with the teaching move it chose; the tag is
+              stripped before speech and shown on the dashboard
 
 Run with:  uv run bot.py   then open http://localhost:7860/dashboard/
 """
@@ -34,7 +36,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config
 from ilumina.emotion import score_turn
-from ilumina.processors import StudentStateInjector
+from ilumina.processors import StudentStateInjector, TeachingMoveTagger
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
 
@@ -84,6 +86,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             user_aggregator,
             state_injector,
             llm,
+            TeachingMoveTagger(),
             tts,
             transport.output(),
             audio_buffer,
