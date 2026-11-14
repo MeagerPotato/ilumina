@@ -1,0 +1,94 @@
+"""Lecture capture through the Vexo pretend band, transcription parsing, and memory."""
+
+import json
+import math
+import struct
+from types import SimpleNamespace
+
+import httpx
+from vexo_open import audio
+
+from ilumina import memory, transcribe, vexo_band
+
+
+def tone(seconds: float, freq: float = 440.0) -> bytes:
+    n = int(seconds * vexo_band.SAMPLE_RATE)
+    return struct.pack(
+        f"<{n}h",
+        *(int(8000 * math.sin(2 * math.pi * freq * i / vexo_band.SAMPLE_RATE)) for i in range(n)),
+    )
+
+
+def test_sound_goes_through_the_vexo_pretend_band():
+    packets = vexo_band.encode_pcm(tone(2.0))
+    pcm = vexo_band.record(source=iter(packets), seconds=10)
+    seconds = len(pcm) / (2 * vexo_band.SAMPLE_RATE)
+    assert 1.9 <= seconds <= 3.5  # the tone, plus a little silence around it
+    assert audio.level_db(pcm) > -40  # the tone arrived, not the pretend band's silence
+
+
+def test_transcribe_sends_wav_and_reads_paragraphs():
+    seen = {}
+
+    def handler(request):
+        seen["auth"] = request.headers["Authorization"]
+        seen["body"] = request.content[:4]
+        body = {
+            "results": {
+                "channels": [
+                    {
+                        "alternatives": [
+                            {"transcript": "flat", "paragraphs": {"transcript": "\nTwo x.\n"}}
+                        ]
+                    }
+                ]
+            }
+        }
+        return httpx.Response(200, json=body)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert transcribe.transcribe(tone(0.1), "k", client) == "Two x."
+    assert seen == {"auth": "Token k", "body": b"RIFF"}
+
+
+NOTES = {
+    "title": "Derivatives",
+    "subject": "Calculus",
+    "summary": "Slopes.",
+    "key_concepts": [{"name": "Power rule", "explanation": "n x^(n-1)"}],
+    "formulas": [],
+    "likely_confusions": ["Forgetting to lower the power"],
+    "check_questions": ["What is the derivative of x^3?"],
+}
+
+
+class FakeModels:
+    def __init__(self, text):
+        self.text, self.calls = text, []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(text=self.text)
+
+
+def test_notes_save_and_tutor_note(tmp_path):
+    client = SimpleNamespace(models=FakeModels(json.dumps(NOTES)))
+    notes = memory.lecture_notes(client, "m", "today: derivatives")
+    assert notes["title"] == "Derivatives"
+    assert memory.tutor_note(tmp_path) == ""  # nothing saved, nothing told
+
+    memory.save("lectures", {"source": "mic", "transcript": "t", "notes": notes}, tmp_path)
+    memory.save("sessions", {"hard_moments": [{"state": "confusion", "said": "x^3?"}]}, tmp_path)
+    note = memory.tutor_note(tmp_path)
+    assert "Derivatives" in note and "Power rule" in note and "x^3?" in note
+
+    memory.forget(tmp_path)
+    assert memory.load("lectures", root=tmp_path) == []
+
+
+def test_study_plan_uses_memory(tmp_path):
+    memory.save("lectures", {"source": "mic", "transcript": "t", "notes": NOTES}, tmp_path)
+    models = FakeModels("## Day 1\nPower rule")
+    plan = memory.study_plan(SimpleNamespace(models=models), "m", root=tmp_path)
+    assert plan.startswith("## Day 1")
+    assert "Forgetting to lower the power" in models.calls[0]["contents"]

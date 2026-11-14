@@ -15,3 +15,7 @@ DECISION_MODEL = os.getenv("DECISION_MODEL") or "gemini-decision-1"
 # The tutor waits at most this long for the emotion reading of the turn that
 # just ended. After that it answers with the last known state.
 STATE_WAIT_SECONDS = 0.4
+
+# Opt-in: save tutoring sessions (the moments the student struggled) to memory/.
+# Lectures from the Vexo band are saved only when the student says yes in lecture.py.
+SAVE_MEMORY = (os.getenv("ILUMINA_MEMORY") or "off").lower() in ("on", "yes", "true", "1")

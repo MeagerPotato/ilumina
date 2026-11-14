@@ -30,6 +30,31 @@ The dashboard shows only what the bot sends: the reading for each turn, how sure
 
 The first run downloads the voice activity model, so give it about 20 seconds.
 
+## Lecture capture with Vexo (no band needed)
+
+Ilumina can listen to a class, remember it, and plan study from it. Sound goes through the
+[Vexo Open kit](https://github.com/VexoAI-Org/vexo-open-kit)'s band library (`vexo-open`):
+we have no band, so the Mac's microphone stands in for the band's microphone. Its sound is
+turned into the band's own format (Opus, 16 kHz, 20 ms packets) and played by Vexo's pretend
+band through the real Vexo protocol. With a band, add `--band 42` (your band's number) and
+the same code listens to the band over Bluetooth.
+
+```bash
+uv run lecture.py record              # Mac mic; press Ctrl+C when the lecture ends
+uv run lecture.py record --file class.m4a   # or a recording you already have
+uv run lecture.py plan                # a 3-day study plan from what Ilumina remembers
+uv run lecture.py show                # what Ilumina remembers
+uv run lecture.py forget              # delete it all
+```
+
+After a recording: Deepgram turns the sound into text, Gemini writes study notes (key ideas,
+likely sticking points, check questions), and you are asked whether to save them. **Nothing
+is saved unless you say yes.** Saved lectures go to the local `memory/` folder (never in
+git), and the tutor is told about them at the start of the next session. With
+`ILUMINA_MEMORY=on` in `.env`, the tutor also saves the moments a student sounded confused
+or frustrated, and `plan` puts those first. The first time, macOS asks to let Terminal use
+the microphone: click Allow.
+
 ## Settings
 
 All in `.env`:
@@ -41,6 +66,7 @@ All in `.env`:
 | `GOOGLE_API_KEY` | Google AI Studio key |
 | `GOOGLE_MODEL` | Tutor brain, default `gemini-4-argon`. Use `gemini-4-hydrogen` if Argon is slow |
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
+| `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/`. Default `off` |
 
 ## Layout
 
@@ -52,6 +78,10 @@ All in `.env`:
 | `ilumina/processors.py` | Hands the state note to the tutor before each reply |
 | `ilumina/prompts.py` | Ilumina's persona and teaching rules |
 | `ilumina/config.py` | Keys and model IDs from the environment |
+| `lecture.py` | Record a lecture, make a study plan, show or delete memory |
+| `ilumina/vexo_band.py` | Mic or file to band packets, through the Vexo band library |
+| `ilumina/transcribe.py` | A recorded lecture to text with Deepgram |
+| `ilumina/memory.py` | Lecture notes, opt-in memory, the tutor's memory note, study plans |
 | `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0 and `@pipecat-ai/small-webrtc-transport` 1.11.2 bundled with esbuild |
 
 ## Tests
