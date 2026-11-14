@@ -3,6 +3,7 @@
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
+Camera path:  the newest camera frame is shown to the tutor with each student turn
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
               stripped before speech and shown on the dashboard
 
@@ -40,12 +41,16 @@ from pipecat.runner.utils import create_transport
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.google.llm import GoogleLLMService
-from pipecat.transports.base_transport import BaseTransport, TransportParams
+from pipecat.transports.base_transport import (
+    BaseTransport,
+    TransportParams,
+    VideoInSourceParams,
+)
 from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config
 from ilumina.emotion import score_turn
-from ilumina.processors import StudentStateInjector, TeachingMoveTagger
+from ilumina.processors import CameraView, StudentStateInjector, TeachingMoveTagger
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
 
@@ -93,6 +98,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             transport.input(),
             stt,
             user_aggregator,
+            CameraView(),
             state_injector,
             llm,
             TeachingMoveTagger(),
@@ -155,7 +161,13 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 async def bot(runner_args: RunnerArguments):
     """Entry point used by the Pipecat runner."""
     transport_params = {
-        "webrtc": lambda: TransportParams(audio_in_enabled=True, audio_out_enabled=True),
+        "webrtc": lambda: TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            # One camera frame a second is plenty: only the newest is shown to the tutor.
+            video_in_enabled=True,
+            video_in_sources={"camera": VideoInSourceParams(framerate=1)},
+        ),
     }
     transport = await create_transport(runner_args, transport_params)
     await run_bot(transport, runner_args)

@@ -86,6 +86,50 @@ function receive(msg) {
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
     $("note").textContent =
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
+  } else if (msg?.type === "camera_view" && client?.isCamEnabled) {
+    $("cam-seen").textContent = msg.seen
+      ? "Ilumina got a picture with your last turn."
+      : "Ilumina did not get a picture with your last turn.";
+  }
+}
+
+// Camera controls. The camera is optional and never blocks the voice session.
+function showCamera(track) {
+  $("cam-video").srcObject = track ? new MediaStream([track]) : null;
+  $("cam-video").hidden = !track;
+  $("cam-off").hidden = Boolean(track);
+  $("cam-toggle").textContent = track ? "Turn camera off" : "Turn camera on";
+  if (!track) $("cam-pick").hidden = true;
+}
+
+function listCameras(cams) {
+  const pick = $("cam-pick");
+  pick.replaceChildren(...cams.map((cam, i) => new Option(cam.label || `Camera ${i + 1}`, cam.deviceId)));
+  const current = client?.selectedCam?.deviceId;
+  if (current) pick.value = current;
+  pick.hidden = !client?.isCamEnabled || cams.length < 2;
+}
+
+function resetCamera(message) {
+  showCamera(null);
+  $("cam-toggle").disabled = !client;
+  $("cam-seen").textContent = message;
+}
+
+async function toggleCamera() {
+  if (!client) return;
+  const on = !client.isCamEnabled;
+  try {
+    client.enableCam(on);
+    if (on) {
+      $("cam-seen").textContent = "Camera is on. Ilumina gets a picture when you next speak.";
+      listCameras(await client.getAllCams());
+    } else {
+      resetCamera("Camera is off. Ilumina hears you but sees nothing.");
+    }
+  } catch (e) {
+    console.error(e);
+    resetCamera("The camera could not be turned on. Check the browser's camera permission.");
   }
 }
 
@@ -104,8 +148,8 @@ async function toggle() {
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; },
+      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
+      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
@@ -116,9 +160,21 @@ async function toggle() {
         addLine("Ilumina", o.text);
       },
       onTrackStarted: (track, participant) => {
+        if (track.kind === "video" && participant?.local) return showCamera(track);
         if (track.kind !== "audio" || participant?.local) return;
         if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
         $("bot-audio").srcObject = new MediaStream([track]);
+      },
+      onTrackStopped: (track, participant) => {
+        if (track.kind === "video" && participant?.local) showCamera(null);
+      },
+      onAvailableCamsUpdated: listCameras,
+      onDeviceError: (e) => {
+        if (!e?.devices?.includes("cam")) return;
+        client.enableCam(false);
+        resetCamera(e.type === "permissions"
+          ? "The browser blocked the camera. Allow it in the address bar, then try again."
+          : "The camera could not be turned on. Ilumina carries on by voice.");
       },
       onError: (e) => {
         console.error(e);
@@ -141,4 +197,6 @@ async function toggle() {
 }
 
 $("connect").addEventListener("click", toggle);
-window.ilumina = { receive }; // lets tests feed recorded messages
+$("cam-toggle").addEventListener("click", toggleCamera);
+$("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
+window.ilumina = { receive, showCamera }; // lets tests feed recorded messages
