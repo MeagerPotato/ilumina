@@ -98,3 +98,20 @@ def test_one_sure_reading_carries_the_estimate_into_the_new_level():
     turn(t, 0.1)
     d = turn(t, 0.9, confidence=0.9)
     assert d["level"] == "high" and d["estimate"] >= 0.65
+
+
+def test_fairly_sure_readings_that_disagree_do_not_flip_the_level_each_turn():
+    t = StateTracker()
+    turn(t, 0.2, confidence=0.75)
+    for _ in range(2):
+        d = turn(t, 0.72, confidence=0.7)
+        assert d["status"] == "blip" and d["level"] == "low" and d["seen"] == "high"
+        d = turn(t, 0.2, confidence=0.75)
+        assert d["status"] == "steady" and d["level"] == "low"
+
+
+def test_unreadable_probability_keys_fall_back_to_the_api_confidence():
+    answer = SimpleNamespace(
+        type="score", score=3.0, confidence=0.6, probabilities={"level-3": 1.0}
+    )
+    assert parse_answers({"confusion": answer})["confusion"].confidence == 0.6

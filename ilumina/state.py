@@ -9,7 +9,9 @@ from dataclasses import dataclass
 DIMENSIONS = ("confusion", "frustration", "confidence", "engagement")
 
 # A single reading this confident may change the level without a second turn.
-STRONG_CONFIDENCE = 0.7
+# Confidence is the chance of the whole low/medium/high band, so a 70/30 split
+# between two bands must not count as strong.
+STRONG_CONFIDENCE = 0.8
 
 
 @dataclass
@@ -61,6 +63,7 @@ class StateTracker:
                 "level": self._level[name],
                 "status": status,
                 "reading": round(reading.value, 3),
+                "seen": level_of(reading.value),  # the band `confidence` is about
                 "confidence": round(reading.confidence, 3),
             }
         return {"turn": self._turn, "dimensions": dims}
@@ -94,6 +97,6 @@ def describe(snapshot: dict) -> str:
         if d["status"] == "trend":
             part += " (just changed)"
         elif d["status"] == "blip":
-            part += f" (blip: one turn read {level_of(d['reading'])})"
+            part += f" (blip: one turn read {d['seen']})"
         parts.append(part)
     return f"Student state, turn {snapshot['turn']}, estimate only: " + ", ".join(parts) + "."

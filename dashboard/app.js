@@ -25,8 +25,11 @@ function renderNow(snapshot) {
     // Band half-width grows as the model gets less sure of its reading.
     const half = 0.04 + (1 - d.confidence) * 0.22;
     const left = Math.max(0, d.reading - half), right = Math.min(1, d.reading + half);
+    // The percentage is about this turn's reading, which on a blip is not the level shown.
+    const sure = `${Math.round(d.confidence * 100)}% sure`;
+    const read = d.seen === d.level ? sure : `this turn read ${d.seen}, ${sure}`;
     return `<div class="dim">
-      <div class="name">${dim}<small>${d.level}, ${Math.round(d.confidence * 100)}% sure</small></div>
+      <div class="name">${dim}<small>${d.level}, ${read}</small></div>
       <div class="track" role="img" aria-label="${dim}: ${d.level}, estimate ${d.estimate}, reading ${d.reading}">
         <span class="zone" style="left:35%"></span><span class="zone" style="left:65%"></span>
         <span class="band" style="left:${pct(left)};width:${pct(right - left)};background:${color(dim)}"></span>

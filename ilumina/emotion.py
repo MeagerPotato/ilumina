@@ -73,7 +73,10 @@ def _band_confidence(answer, value: float, top: int) -> float:
     if not probabilities:
         return answer.confidence
     band = level_of(value)
-    return sum(p for level, p in probabilities.items() if level_of(int(level) / top) == band)
+    try:
+        return sum(p for level, p in probabilities.items() if level_of(int(level) / top) == band)
+    except ValueError:  # level keys in a shape we have not seen: keep the API's own number
+        return answer.confidence
 
 
 def parse_answers(answers: dict) -> dict[str, Reading]:
