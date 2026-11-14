@@ -91,7 +91,7 @@ async function toggle() {
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; },
+      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; },
       onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
@@ -107,7 +107,14 @@ async function toggle() {
         if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
         $("bot-audio").srcObject = new MediaStream([track]);
       },
-      onError: (e) => { $("status").textContent = "Something went wrong. Check the bot's terminal."; console.error(e); },
+      onError: (e) => {
+        console.error(e);
+        // Show the bot's own error text so the cause is visible without the terminal.
+        const detail = e?.data?.message ?? e?.data?.error ?? (typeof e?.data === "string" ? e.data : "");
+        $("status").textContent = "Connected, with an error";
+        $("problem").hidden = false;
+        $("problem").textContent = `The bot reported a problem: ${detail || "no details sent. Check the bot's terminal."}`;
+      },
     },
   });
   try {

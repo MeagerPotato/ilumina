@@ -14,6 +14,7 @@
     --warn: #a15c00;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--paper); color: var(--ink);
     font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
@@ -25,14 +26,16 @@
   main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 56px; }
   header { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 6px; }
   h1 { font-size: 56px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
-  .tag { color: var(--muted); max-width: 46ch; margin: 0 auto 4px 0; }
+  .tag { color: var(--muted); max-width: 46ch; margin: 0 0 4px; }
   button {
     font: inherit; font-weight: 600; color: #fff; background: var(--ink); border: 0;
     padding: 12px 22px; border-radius: 999px; cursor: pointer;
   }
   button:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   button[disabled] { opacity: .55; cursor: default; }
-  .status { color: var(--muted); font-size: 15px; min-width: 14ch; }
+  .session { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+  .status { color: var(--muted); font-size: 15px; }
+  .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
   section { background: var(--panel); border: 1.5px solid var(--ink); border-radius: 6px; padding: 20px 22px; }
@@ -78,9 +81,12 @@
   <header>
     <h1>Ally</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
-    <span class="status" id="status" role="status">Not connected</span>
-    <button id="connect">Start session</button>
+    <div class="session">
+      <span class="status" id="status" role="status">Not connected</span>
+      <button id="connect">Start session</button>
+    </div>
   </header>
+  <p class="problem" id="problem" role="alert" hidden></p>
   <p class="consent">Starting a session turns on your microphone. Ally scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. Audio is not saved.</p>
 
   <div class="cols">
