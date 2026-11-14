@@ -151,7 +151,7 @@
     <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
     <div class="session">
-      <fieldset class="mode" id="mode" aria-label="Kind of session">
+      <fieldset class="mode" id="mode" aria-label="Kind of session" aria-describedby="mode-hint">
         <label><input type="radio" name="mode" value="homework" checked>Homework</label>
         <label><input type="radio" name="mode" value="review">Lecture review</label>
       </fieldset>
@@ -167,8 +167,8 @@
     <button id="done" aria-disabled="true">Done talking</button>
     <span class="sr" id="stage-say" role="status"></span>
   </div>
-  <div class="stage ask" id="ask" hidden>
-    <p><b>Save what was hard?</b><span id="ask-text"></span></p>
+  <div class="stage ask" id="ask" role="group" aria-labelledby="ask-title" aria-describedby="ask-text" hidden>
+    <p><b id="ask-title">Save what was hard?</b><span id="ask-text"></span></p>
     <button id="ask-save">Save and end</button>
     <button id="ask-skip" class="quiet">End without saving</button>
   </div>

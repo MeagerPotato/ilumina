@@ -2,8 +2,9 @@
 
 Nothing is saved on this computer unless the student says yes. (The sound always goes to
 Deepgram for text, and the text to Google Gemini for notes, before the student is asked.) Lectures are saved only after the student
-agrees at the end of `lecture.py record` (or passes --save). Tutoring sessions are saved
-only when ILUMINA_MEMORY=on is set in .env. Everything stays in the local `memory/`
+agrees at the end of `lecture.py record` (or passes --save). The hard moments of a
+tutoring session are saved only when the student says yes on the dashboard as the session
+ends, or when ILUMINA_MEMORY=on is set in .env. Everything stays in the local `memory/`
 folder (not in git); `uv run lecture.py forget` deletes it all.
 """
 
@@ -177,9 +178,10 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
 
 
 def review_material(root: Path = MEMORY_DIR, max_chars: int = 60_000) -> dict | None:
-    """The newest class in full, for a lecture review session: its title, the notes and
-    the transcript. None when no class is saved."""
-    lectures = load("lectures", 1, root)
+    """The newest class in full, for a lecture review session: its title (empty when the
+    class has none), the notes, the transcript, and whether the transcript was cut.
+    None when no class is saved."""
+    lectures = load("lectures", root=root)  # all of them, so a damaged newest file is skipped
     if not lectures:
         return None
     n = lectures[-1].get("notes") or {}
@@ -194,11 +196,14 @@ def review_material(root: Path = MEMORY_DIR, max_chars: int = 60_000) -> dict | 
     ):
         if n.get(key):
             lines.append(f"{label}: {'; '.join(n[key])}")
+    title = n.get("title", "")
+    transcript = str(lectures[-1].get("transcript", ""))
     return {
-        "title": n.get("title", "untitled"),
+        "title": "" if title == empty_notes()["title"] else title,
         "notes": "\n".join(filter(None, lines)),
         # A long class is cut so that a spoken reply still starts quickly.
-        "transcript": str(lectures[-1].get("transcript", ""))[:max_chars],
+        "transcript": transcript[:max_chars],
+        "cut": len(transcript) > max_chars,
     }
 
 

@@ -10,7 +10,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 - **Emotion path.** The audio of each student turn goes to Gemini Decision 1, which scores confusion, frustration, confidence and engagement with a confidence value for each.
 - **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, filler words and how long the student waited before answering. The dashboard shows these numbers, and Decision 1 gets them as one line beside the audio.
 - **Mic meter.** Once a second the bot tells the dashboard how loud the microphone is, as speech to text gets it, and logs it every 5 seconds. A silent microphone shows as "Mic is silent".
-- **Two kinds of session.** The student picks one on the dashboard before starting. In **Homework** the tutor works through a problem the student brings, usually on paper in front of the camera. In **Lecture review** the tutor goes back over the newest saved class one idea at a time, with its notes and its transcript in hand. A review with no saved class starts as homework and says so.
+- **Two kinds of session.** The student picks one on the dashboard before starting. In **Homework** the tutor works through a problem the student brings, usually on paper in front of the camera. In **Lecture review** the tutor goes back over the newest saved class one idea at a time, with its notes and its transcript in hand. The dashboard tells the bot which kind before it connects (`POST /mode/...`). A review with no saved class starts as homework and says so.
 - **Where the conversation is.** A bar at the top of the dashboard says whose turn it is: "Your turn", "Hearing you" with the words heard so far, "Heard you" while the tutor thinks, and "Ilumina is speaking". It follows the bot's own events. In a loud room Deepgram Flux can wait a long time to be sure a turn is over, so "Done talking" switches the microphone to silence until the tutor answers, which ends the turn at once.
 - **State tracker.** Plain Python that smooths the scores over turns. A single odd turn is a blip. Two turns in a row, or one very confident reading, is a trend.
 - **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
@@ -58,8 +58,8 @@ After a recording: Deepgram turns the sound into text, Gemini writes study notes
 likely sticking points, check questions), and you are asked whether to save them. **Nothing
 is saved on your computer unless you say yes.** The sound does go to Deepgram, and the text
 to Google Gemini, before you are asked. Saved lectures go to the local `memory/` folder (never in
-git), and the tutor is told about them at the start of the next session: it opens from the
-most recent class, and the dashboard shows the classes it remembers and the study plan. When a
+git), and the tutor is told about them at the start of the next session: a lecture review opens from
+the most recent class, and the dashboard shows the classes it remembers and the study plan. When a
 session had moments where the student sounded confused or frustrated, the dashboard asks
 before it ends whether to save them, and saves only on a yes; `plan` puts those first.
 `ILUMINA_MEMORY=on` in `.env` saves them without asking. The first time, macOS asks to let Terminal use
