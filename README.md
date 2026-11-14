@@ -40,7 +40,7 @@ All in `.env`:
 | `DEEPGRAM_API_KEY` | Deepgram speech to text and text to speech |
 | `DEEPGRAM_VOICE_ID` | Aura-2 voice, default `aura-2-helena-en` |
 | `GOOGLE_API_KEY` | Google AI Studio key |
-| `GOOGLE_MODEL` | Tutor brain, default `gemini-4-argon`. Use `gemini-3.8-flash` if Argon is slow |
+| `GOOGLE_MODEL` | Tutor brain, default `gemini-4-argon`. Use `gemini-4-hydrogen` if Argon is slow |
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
 
 ## Layout
