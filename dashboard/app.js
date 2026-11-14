@@ -72,7 +72,9 @@ function receive(msg) {
     $("note").textContent = msg.note ?? "";
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
-    $("note").textContent = "The reading for this turn failed. Ilumina is using the last state it had.";
+    const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
+    $("note").textContent =
+      "The reading for this turn failed. Ilumina is using the last state it had." + reason;
   }
 }
 
