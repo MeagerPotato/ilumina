@@ -37,8 +37,9 @@ GREETING_NOTE = "Greet the student in one sentence as Ilumina and ask what they 
 
 # Used instead when Ilumina remembers a class, so the session opens from it.
 GREETING_WITH_MEMORY_NOTE = (
-    "Greet the student in one sentence as Ilumina. Then, in one more sentence, name the "
-    "most recent class you remember and ask if they want to start there or with something else."
+    "Greet the student in one sentence as Ilumina. Then, in one more sentence, say you "
+    'remember their most recent class, "{title}", and ask if they want to start there or '
+    "with something else."
 )
 
 CAMERA_NOTE = "This is what the student's camera sees right now."

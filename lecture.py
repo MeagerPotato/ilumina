@@ -41,7 +41,7 @@ def read_text(path: str) -> str:
         sys.exit("Add GOOGLE_API_KEY to .env first.")
     try:
         transcript = Path(path).read_text().strip()
-    except OSError as e:
+    except (OSError, ValueError) as e:  # missing, or not plain text
         sys.exit(f"Could not read {path}: {e}")
     if not transcript:
         sys.exit(f"{path} is empty.")

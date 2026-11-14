@@ -81,15 +81,21 @@ function planHtml(markdown) {
 }
 
 function renderMemory(m) {
-  const classes = (m.lectures ?? []).map((c) => `<p class="class"><b>${esc(c.title)}</b>
-    <span>${esc([c.subject, (c.concepts ?? []).join(", ")].filter(Boolean).join(": "))}</span></p>`).join("");
-  if (!classes && !m.plan) {
+  const classes = (m.lectures ?? []).map((c) => {
+    const stuck = (c.sticking_points ?? []).length ? `<span>Likely sticking points: ${esc(c.sticking_points.join("; "))}</span>` : "";
+    return `<p class="class"><b>${esc(c.title)}</b>
+      <span>${esc([c.subject, (c.concepts ?? []).join(", ")].filter(Boolean).join(": "))}</span>${stuck}</p>`;
+  }).join("");
+  const moments = m.hard_moments
+    ? `<p class="class"><b>Earlier sessions</b><span>${Number(m.hard_moments)} ${m.hard_moments === 1 ? "moment" : "moments"} where you sounded stuck</span></p>`
+    : "";
+  if (!classes && !moments && !m.plan) {
     $("memory").innerHTML = `<p class="empty">Nothing saved yet. Record a class and Ilumina opens the next session from it.</p>`;
     return;
   }
-  $("memory").innerHTML = classes
+  $("memory").innerHTML = classes + moments
     + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
-    + `<p class="kept">Kept on this computer only, from classes you chose to save.</p>`;
+    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.</p>`;
 }
 
 function renderTrace() {

@@ -174,8 +174,8 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
 
 
 def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:
-    """What the dashboard shows of memory: the same lectures the tutor is told about,
-    and the newest study plan if one was made. Notes only, never a transcript."""
+    """What the dashboard shows of memory: what `tutor_note` tells the tutor, as data,
+    plus the newest study plan if one was made. Notes only, never a transcript."""
     lectures = []
     for lec in load("lectures", limit, root):
         n = lec.get("notes") or {}
@@ -184,13 +184,15 @@ def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:
                 "title": n.get("title", "untitled"),
                 "subject": n.get("subject", ""),
                 "concepts": [c.get("name", "") for c in n.get("key_concepts", [])[:6]],
+                "sticking_points": n.get("likely_confusions", [])[:3],
             }
         )
+    hard_moments = sum(len(s.get("hard_moments", [])[-2:]) for s in load("sessions", limit, root))
     try:
         plan = (root / PLAN_PATH.name).read_text().strip()
-    except OSError:
+    except (OSError, ValueError):  # missing, or not readable as text
         plan = ""
-    return {"lectures": lectures, "plan": plan}
+    return {"lectures": lectures, "hard_moments": hard_moments, "plan": plan}
 
 
 def _lectures_text(lectures: list[dict]) -> str:

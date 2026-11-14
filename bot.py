@@ -91,10 +91,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         await asyncio.to_thread(headcam.claim, session)
 
     try:
-        memory_note, remembered = memory.tutor_note(), memory.overview()
+        memory_note = memory.tutor_note()
     except Exception as e:  # noqa: BLE001 - memory is a bonus; the tutor must still start
         logger.warning(f"Could not read memory, starting without it: {e}")
-        memory_note, remembered = "", None
+        memory_note = ""
+    try:
+        remembered = memory.overview()
+    except Exception as e:  # noqa: BLE001 - the panel is a bonus on top of that
+        logger.warning(f"Could not read memory for the dashboard: {e}")
+        remembered = None
 
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
@@ -217,8 +222,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         if remembered:
             # What the tutor was told it remembers, so the student can see it too.
             await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
-        opens_from_class = bool(remembered and remembered["lectures"])
-        greeting = GREETING_WITH_MEMORY_NOTE if opens_from_class else GREETING_NOTE
+        greeting = GREETING_NOTE
+        if memory_note and remembered and remembered["lectures"]:
+            # Open from the newest class, by name, so the tutor does not pick an older one.
+            newest = remembered["lectures"][-1]["title"]
+            greeting = GREETING_WITH_MEMORY_NOTE.format(title=newest)
         context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 
