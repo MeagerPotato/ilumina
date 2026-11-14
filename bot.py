@@ -63,7 +63,13 @@ from ilumina.processors import (
     TeachingMoveTagger,
     VoiceEvidence,
 )
-from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
+from ilumina.prompts import (
+    GREETING_NOTE,
+    GREETING_REVIEW_NOTE,
+    HOMEWORK_NOTE,
+    REVIEW_NOTE,
+    TUTOR_SYSTEM_PROMPT,
+)
 from ilumina.state import StateTracker, describe
 
 headcam = None
@@ -102,6 +108,19 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.warning(f"Could not read memory for the dashboard: {e}")
         remembered = None
 
+    # The student picks homework or lecture review on the dashboard. A review needs a
+    # saved class; without one the session is a homework session and says so.
+    body = runner_args.body if isinstance(runner_args.body, dict) else {}
+    asked_for_review = body.get("mode") == "review"
+    review = None
+    if asked_for_review:
+        try:
+            review = memory.review_material()
+        except Exception as e:  # noqa: BLE001 - a session still starts, as homework
+            logger.warning(f"Could not read the class to review: {e}")
+    mode_note = REVIEW_NOTE.format(**review) if review else HOMEWORK_NOTE
+    logger.info(f"Session mode: {'review' if review else 'homework'}")
+
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
         api_key=config.DEEPGRAM_API_KEY,
@@ -112,7 +131,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
             # Lectures the student saved from the Vexo band, and past sessions, if any.
-            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note,
+            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note + mode_note,
             # A spoken reply has to start fast. "low" is valid on every Gemini 4
             # model; left unset, Hydrogen thinks at "high" before it speaks.
             thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
@@ -231,17 +250,20 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
                     "camera": config.CAMERA,
+                    "mode": "review" if review else "homework",
+                    "no_class_to_review": asked_for_review and not review,
                 }
             )
         )
         if remembered:
             # What the tutor was told it remembers, so the student can see it too.
-            await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
-        greeting = GREETING_NOTE
-        if memory_note and remembered and remembered["lectures"]:
-            # Open from the newest class, by name, so the tutor does not pick an older one.
-            newest = remembered["lectures"][-1]["title"]
-            greeting = GREETING_WITH_MEMORY_NOTE.format(title=newest)
+            reviewing = review["title"] if review else ""
+            await worker.queue_frame(
+                RTVIServerMessageFrame(
+                    data={"type": "memory", "reviewing": reviewing, **remembered}
+                )
+            )
+        greeting = GREETING_REVIEW_NOTE.format(title=review["title"]) if review else GREETING_NOTE
         context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 

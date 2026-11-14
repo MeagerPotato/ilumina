@@ -107,7 +107,8 @@ function renderMemory(m) {
   }
   $("memory").innerHTML = classes + moments
     + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
-    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.</p>`;
+    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.`
+    + (m.reviewing ? ` For this review it also has the full transcript of ${esc(m.reviewing)}.` : "") + `</p>`;
 }
 
 function renderTrace() {
@@ -260,6 +261,12 @@ function receive(msg) {
     $("running").textContent =
       `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
       `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
+    // The bot says which kind of session it really started.
+    if (msg.mode) showMode(msg.mode);
+    if (msg.no_class_to_review) {
+      $("problem").hidden = false;
+      $("problem").textContent = "No class is saved yet, so this is a homework session. Save one with lecture.py, then start a lecture review.";
+    }
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "Wear the GoPro and look at your page so Ilumina can read the problem and your working.";
   } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {
@@ -344,6 +351,18 @@ function toggleCamera() {
 let client;
 const shownSegments = new Set();
 
+// The two kinds of session. The choice is sent to the bot when the session starts.
+const MODE_HINT = {
+  homework: "Homework: bring a problem. Ilumina reads your page and helps you through it.",
+  review: "Lecture review: go back over your last class, one idea at a time.",
+};
+const pickedMode = () => document.querySelector('input[name="mode"]:checked').value;
+function showMode(mode) {
+  document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+  document.body.dataset.mode = mode;
+  $("mode-hint").textContent = MODE_HINT[mode];
+}
+
 // Nothing from a session is kept unless the student says yes when it ends.
 let hardMoments = 0, endNote = "";
 async function endSession(save) {
@@ -374,6 +393,7 @@ async function toggle() {
     return;
   }
   button.disabled = true;
+  $("mode").disabled = true;
   $("status").textContent = "Connecting";
   client = new PipecatClient({
     transport: new SmallWebRTCTransport(),
@@ -381,7 +401,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); clearTimeout(pauseTimer); micPaused = userSpeaking = false; setStage(null); $("ask").hidden = true; hardMoments = 0; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); clearTimeout(pauseTimer); micPaused = userSpeaking = false; setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -427,16 +447,19 @@ async function toggle() {
     },
   });
   try {
-    await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
+    await client.connect({ webrtcRequestParams: { endpoint: "/api/offer", requestData: { mode: pickedMode() } } });
   } catch (e) {
     console.error(e);
     $("status").textContent = "Could not connect. Is the bot running?";
     button.disabled = false;
+    $("mode").disabled = false;
     client = undefined;
   }
 }
 
 $("connect").addEventListener("click", toggle);
+$("mode").addEventListener("change", () => showMode(pickedMode()));
+showMode(pickedMode());
 $("done").addEventListener("click", doneTalking);
 $("ask-save").addEventListener("click", () => endSession(true));
 $("ask-skip").addEventListener("click", () => endSession(false));

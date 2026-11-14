@@ -176,6 +176,32 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
     return "\n".join(lines)
 
 
+def review_material(root: Path = MEMORY_DIR, max_chars: int = 60_000) -> dict | None:
+    """The newest class in full, for a lecture review session: its title, the notes and
+    the transcript. None when no class is saved."""
+    lectures = load("lectures", 1, root)
+    if not lectures:
+        return None
+    n = lectures[-1].get("notes") or {}
+    lines = [n.get("summary", "")]
+    lines += [
+        f"- {c.get('name', '')}: {c.get('explanation', '')}" for c in n.get("key_concepts", [])
+    ]
+    for label, key in (
+        ("Formulas", "formulas"),
+        ("Likely sticking points", "likely_confusions"),
+        ("Questions you can ask", "check_questions"),
+    ):
+        if n.get(key):
+            lines.append(f"{label}: {'; '.join(n[key])}")
+    return {
+        "title": n.get("title", "untitled"),
+        "notes": "\n".join(filter(None, lines)),
+        # A long class is cut so that a spoken reply still starts quickly.
+        "transcript": str(lectures[-1].get("transcript", ""))[:max_chars],
+    }
+
+
 def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:
     """What the dashboard shows of memory: what `tutor_note` tells the tutor, as data,
     plus the newest study plan if one was made. Notes only, never a transcript."""

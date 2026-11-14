@@ -43,13 +43,35 @@ when your notes about the student's classes are written that way.
 Example: [move: worked_example] [show: \\frac{d}{dx}\\sin x = \\cos x] The derivative \
 of sine x is cosine x. What do you think the derivative of cosine x is?"""
 
+# The two kinds of session. The student picks one on the dashboard before starting.
+HOMEWORK_NOTE = """
+
+This is a homework session. The student brings a problem of their own, usually on paper \
+in front of the camera. Work through that problem with them. Use what you remember from \
+their classes only when it helps with the step they are on."""
+
+REVIEW_NOTE = """
+
+This is a lecture review session, not homework. Go back over the student's most recent \
+class, "{title}", one idea at a time, in the order it was taught. For each idea, ask the \
+student to explain it or to answer one short question about it, listen, fix what is off, \
+then move to the next idea. The student should do most of the talking: do not lecture and \
+do not recite the transcript. Stay with what was said in this class. If they bring up a \
+homework problem, help briefly and come back to the review.
+
+Your notes on the class:
+{notes}
+
+The transcript of the class, for your reference only:
+{transcript}"""
+
 GREETING_NOTE = "Greet the student in one sentence as Ilumina and ask what they are working on."
 
-# Used instead when Ilumina remembers a class, so the session opens from it.
-GREETING_WITH_MEMORY_NOTE = (
+# Used in a lecture review, so the session opens from the class being reviewed.
+GREETING_REVIEW_NOTE = (
     "Greet the student in one sentence as Ilumina. Then, in one more sentence, say you "
-    'remember their most recent class, "{title}", and ask if they want to start there or '
-    "with something else."
+    'will go back over their class "{title}" together, and ask one short question about '
+    "its first idea."
 )
 
 CAMERA_NOTE = "This is what the student's camera sees right now."

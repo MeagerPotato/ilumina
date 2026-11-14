@@ -162,3 +162,23 @@ def test_a_text_transcript_is_read_without_the_band_or_deepgram(tmp_path, monkey
             assert str(path) in str(e)
         else:
             raise AssertionError("read_text() should have stopped")
+
+
+def test_a_lecture_review_gets_the_newest_class_in_full(tmp_path):
+    assert memory.review_material(tmp_path) is None  # no class saved, nothing to review
+
+    memory.save("lectures", {"source": "mic", "transcript": "old words", "notes": NOTES}, tmp_path)
+    newest = {**NOTES, "title": "Chain rule", "formulas": ["$(f(g))' = f'(g) g'$"]}
+    record = {"source": "text file", "transcript": "x" * 50, "notes": newest}
+    memory.save("lectures", record, tmp_path)
+    review = memory.review_material(tmp_path, max_chars=20)
+    assert review["title"] == "Chain rule"
+    assert "Power rule" in review["notes"] and "$(f(g))' = f'(g) g'$" in review["notes"]
+    assert "What is the derivative of x^3?" in review["notes"]
+    assert review["transcript"] == "x" * 20  # a long class is cut
+
+    # The tutor's instructions take the class as it is, braces and all.
+    from ilumina.prompts import REVIEW_NOTE
+
+    note = REVIEW_NOTE.format(**{**review, "notes": "$\\frac{d}{dx}$"})
+    assert "Chain rule" in note and "$\\frac{d}{dx}$" in note
