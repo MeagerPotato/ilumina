@@ -129,3 +129,52 @@ def test_bluetooth_that_would_kill_the_bot_is_never_touched():
     assert wait_for(lambda: link.status["state"] == "blocked")
     time.sleep(0.1)
     assert asked == [] and told[-1]["state"] == "blocked"
+
+
+def test_a_session_that_ended_never_reports_on_the_next_sessions_band():
+    def connect(number, **options):
+        return Band.connect(number, transport=SimTransport(42, auto_tap=False))
+
+    link = BandLink(42, connect=connect, safe=lambda: True)
+    first, second = [], []
+    link.start(first.append)
+    assert wait_for(lambda: link.status["state"] == "connected")
+    link.stop(link._tell)
+    link.start(second.append)  # End session, then Start session straight away
+    try:
+        assert wait_for(lambda: second and second[-1]["state"] == "connected")
+        time.sleep(0.3)
+        assert [m["state"] for m in second if m["type"] == "band"] == ["looking", "connected"]
+        assert link.status["state"] == "connected"
+    finally:
+        link.stop(link._tell)
+    assert wait_for(lambda: link.status["state"] == "off")
+
+
+def test_a_band_that_fails_after_connecting_is_not_retried_in_a_spin(monkeypatch):
+    monkeypatch.setattr(band_link, "_RETRY_SECONDS", 0.2)
+    tries = []
+
+    class Broken:
+        connected = True
+
+        def on(self, *args):
+            raise VexoError("busy", "Another program holds the stream.")
+
+        def led_off(self):
+            pass
+
+        def disconnect(self):
+            pass
+
+    def connect(number, **options):
+        tries.append(number)
+        return Broken()
+
+    link = BandLink(42, connect=connect, safe=lambda: True)
+    told = []
+    link.start(told.append)
+    time.sleep(0.5)
+    link.stop(link._tell)
+    assert 1 <= len(tries) <= 4
+    assert any(m.get("problem") == "busy" for m in told)

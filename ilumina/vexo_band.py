@@ -148,7 +148,11 @@ def record(
     band.on("audio", lambda a: pcm.extend(decoder.feed(a)))
     # A real band's light goes solid blue: the microphone is on. On the pretend band the
     # mic-level stream also takes up the loudness curves that go with each batch.
-    band.configure(audio=True, mic_level=not real)
+    try:
+        band.configure(audio=True, mic_level=not real)
+    except Exception:
+        band.disconnect()  # do not hold on to a band whose microphone would not start
+        raise
 
     sent = [0]  # packets handed to the pretend band
     finished = threading.Event()
@@ -215,9 +219,13 @@ def record(
                 band.wait(queued_seconds())  # let the last queued sound arrive
         if old_handler is not None:
             signal.signal(signal.SIGINT, old_handler)
-        if band.connected:
-            band.configure(audio=False, mic_level=False)
-        band.disconnect()
+        # A band that went out of reach at the very end must not cost the recording.
+        try:
+            if band.connected:
+                band.configure(audio=False, mic_level=False)
+            band.disconnect()
+        except Exception as e:  # noqa: BLE001
+            print(f"\nThe band did not switch off cleanly ({e}). The recording is kept.")
     if failure:
         raise RuntimeError(f"The sound source stopped: {failure[0]}") from failure[0]
     return bytes(pcm) + decoder.flush()

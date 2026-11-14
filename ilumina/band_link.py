@@ -81,7 +81,9 @@ class BandLink:
         self._stage = stage
         self._changed.set()
 
-    def _say(self, state: str, **more) -> None:
+    def _say(self, stop: threading.Event, state: str, **more) -> None:
+        if self._stop is not stop:
+            return  # this thread belongs to a session that ended: the band is not its to report
         self.status = {"type": "band", "state": state, "number": self._number, **more}
         self._send(self.status)
 
@@ -94,20 +96,26 @@ class BandLink:
     def _run(self, stop: threading.Event) -> None:
         if not self._usb and not self._safe():
             logger.warning("This program may not use Bluetooth, so the Vexo band is left alone")
-            self._say("blocked")
+            self._say(stop, "blocked")
             return
+        problem = None  # why the last try failed, for the dashboard
         while not stop.is_set():
-            self._say("looking")
+            self._say(stop, "looking", problem=problem)
             try:
                 band = self._connect(self._number, **({"transport": "serial"} if self._usb else {}))
             except Exception as e:  # noqa: BLE001 - not found yet, or Bluetooth is off
+                problem = getattr(e, "code", type(e).__name__)
                 logger.debug(f"Vexo band not connected yet: {e}")
                 stop.wait(_RETRY_SECONDS)
                 continue
             try:
-                self._serve(band, stop)
+                if not stop.is_set():  # the session may have ended while the band was found
+                    self._serve(band, stop)
+                problem = None
             except Exception as e:  # noqa: BLE001 - the tutor goes on without the band
+                problem = getattr(e, "code", type(e).__name__)
                 logger.warning(f"Vexo band link dropped: {e}")
+                stop.wait(_RETRY_SECONDS)  # a band that fails every time must not spin
             finally:
                 try:
                     if band.connected:
@@ -115,13 +123,13 @@ class BandLink:
                     band.disconnect()
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"Vexo band did not disconnect cleanly: {e}")
-        self._say("off")
+        self._say(stop, "off")
 
     def _serve(self, band, stop: threading.Event) -> None:
         band.on("double-tap", lambda _event: self._send({"type": "band_tap"}))
         band.set_events(kinds=["double-tap"])
         band.configure(events=True)
-        self._say("connected", battery=band.get_battery().percent)
+        self._say(stop, "connected", battery=band.get_battery().percent)
         logger.info("Vexo band connected")
         shown = None
         while not stop.is_set() and band.connected:

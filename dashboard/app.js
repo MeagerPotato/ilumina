@@ -284,7 +284,7 @@ const STAGES = {
 };
 const NO_ANSWER_AFTER_MS = 12000;
 // With the Vexo band connected, a double tap on the wrist does what the button does.
-let bandOn = false;
+let bandOn = false, hearingSince = 0;
 const howToSend = () => bandOn ? "double-tap your band or press Done talking" : "press Done talking";
 const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 let stageNow = null, heardText = "", userSpeaking = false;
@@ -295,6 +295,7 @@ let micPaused = false, turnEnded = false, micGraceUntil = 0, quietTimer, thinkTi
 function setStage(stage, hint, quiet = false) {
   clearTimeout(quietTimer);
   clearTimeout(thinkTimer);
+  if (stage === "hearing" && stageNow !== "hearing") hearingSince = Date.now();
   stageNow = stage;
   $("stage").hidden = !stage;
   if (!stage) return;
@@ -402,9 +403,12 @@ function receive(msg) {
     $("band").textContent = bandOn
       ? `${name} is connected${msg.battery == null ? "" : `, battery ${msg.battery}%`}`
       : msg.state === "blocked" ? `${name}: Bluetooth is not allowed here, start the bot from Terminal`
-      : msg.number ? `${name}: double-tap it to connect` : `${name}: plug in its cable`;
+      : (msg.number ? `${name}: double-tap it to connect` : `${name}: plug in its cable`)
+        + (msg.problem && msg.problem !== "not-found-nearby" ? ` (${msg.problem})` : "");
   } else if (msg?.type === "band_tap") {
-    doneTalking(); // only does something while Ilumina is hearing the student
+    // Only does something while Ilumina is hearing the student. A knock in the first
+    // second of a turn is more likely the wrist landing on the desk than a "done".
+    if (Date.now() - hearingSince > 1000) doneTalking();
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
