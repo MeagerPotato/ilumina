@@ -40,7 +40,7 @@ Every number on screen is a real model output, shown as an estimate, never a fac
 
 ## If the live demo breaks
 
-Say "here's the same thing recorded an hour ago" and play the 1 minute video. Keep talking over it with the script above.
+Say "here's the same thing recorded an hour ago" and play the Devpost video from the desktop.
 
 ## Q&A prep (1 minute, keep answers to one or two sentences)
 
