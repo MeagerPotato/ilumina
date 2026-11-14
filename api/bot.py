@@ -1,7 +1,8 @@
 """The hosted tutor: the same bot as bot.py, run in a Vercel Function.
 
 The dashboard at /app/ first POSTs the passcode here, then opens a WebSocket to
-/api/bot?passcode=... and the bot runs for that one connection, voice only.
+/api/bot?passcode=... and the bot runs for that one connection. The camera
+arrives as JPEG stills over the same connection.
 Keys and the passcode come from the Vercel project's environment variables.
 See docs/hosting.md.
 """

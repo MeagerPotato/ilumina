@@ -1,9 +1,8 @@
 #!/bin/sh
 # Vercel's install step for the hosted site. Fetches one pinned commit of the
 # public repo, puts the landing page at / and the dashboard at /app/, then
-# installs exactly what the landing page's lockfile lists. The bot's Python
-# files are uploaded with the deployment itself (see docs/hosting.md), because
-# Vercel builds the Python function from the uploaded files.
+# copies the bot's code beside api/bot.py, then installs exactly what the landing
+# page's lockfile lists. See docs/hosting.md.
 set -eu
 SHA="__COMMIT_SHA__"
 URL="https://codeload.github.com/MeagerPotato/ilumina/tar.gz/$SHA"
@@ -18,5 +17,8 @@ cp -R .src/*/landing/. .
 # Vite copies public/ into dist/, so the dashboard is served at /app/.
 mkdir -p public/app
 cp -R .src/*/dashboard/. public/app/
+# The bot's code, beside api/bot.py, for the Python function.
+cp .src/*/bot.py .
+cp -R .src/*/ilumina .
 rm -rf .src src.tgz
 npm ci

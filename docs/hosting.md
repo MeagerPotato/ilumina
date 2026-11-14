@@ -49,9 +49,10 @@ from uploaded files (Vercel API or MCP `create_deployment`, project `ilumina`):
 - From `deploy/vercel/`, at the deployment root: `vercel.json`, `package.json`,
   `requirements.txt`, and `vercel-install.sh` with `__COMMIT_SHA__` replaced by the
   commit to deploy.
-- From the repo, at the same paths: `api/bot.py`, `bot.py`, `ilumina/*.py`.
+- `api/bot.py` from the repo, at the same path.
 
-The install script downloads that commit, puts `landing/` at the root and `dashboard/`
-into `public/app/`, and Vite builds both into `dist/`. Vercel builds the Python function
+The install script downloads that commit, puts `landing/` at the root, `dashboard/`
+into `public/app/` and `bot.py` and `ilumina/` beside `api/`, and Vite builds the pages
+into `dist/`. Vercel builds the Python function
 from the uploaded `requirements.txt`, a slim list without WebRTC, the GoPro feed or the
 Vexo band (about 290 MB installed, under the 500 MB limit for Python functions).
