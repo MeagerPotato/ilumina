@@ -25,7 +25,7 @@
     font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 15px; line-height: 1.4;
     font-variant-numeric: tabular-nums;
   }
-  main { max-width: 1240px; margin: 0 auto; padding: 20px 24px 40px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 6px 24px 40px; }
   button {
     font: inherit; font-weight: 600; color: #fff; background: var(--ink); border: 0;
     padding: 10px 18px; border-radius: 0; cursor: pointer; box-shadow: 3px 3px 0 var(--shadow);
@@ -35,7 +35,8 @@
   button.quiet { background: var(--panel); color: var(--ink); border: 2px solid var(--ink); padding: 6px 12px; box-shadow: none; }
 
   /* Header: wordmark, where the conversation is, the mic, the session button. */
-  header { display: flex; align-items: center; gap: 16px 24px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 2px solid var(--ink); }
+  /* The header, with where the conversation is, stays in view while the page scrolls. */
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; align-items: center; gap: 16px 24px; flex-wrap: wrap; padding: 14px 0 16px; border-bottom: 2px solid var(--ink); }
   .brand { display: flex; align-items: center; gap: 10px; margin: 0; font: 400 26px/1 var(--pixel); letter-spacing: .02em; }
   .brand svg { width: 26px; height: 26px; shape-rendering: crispEdges; }
   .stage { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 280px; }
@@ -46,6 +47,9 @@
   .stage[data-stage="hearing"] .dot { background: var(--confidence); animation: blink 1s steps(2) infinite; }
   .stage[data-stage="thinking"] .dot { background: var(--warn); }
   .stage[data-stage="speaking"] .dot { background: var(--confusion); }
+  .stage button { flex: none; margin-left: auto; }
+  .stage button[aria-disabled="true"] { opacity: .3; cursor: default; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes blink { 50% { opacity: .25; } }
   .session { display: flex; align-items: center; gap: 14px; margin-left: auto; }
   .status { color: var(--muted); font-size: 13px; white-space: nowrap; }
@@ -183,6 +187,8 @@
     .camera .view { aspect-ratio: 16 / 9; }
     .stats dd { font-size: 26px; }
     .session { margin-left: 0; width: 100%; justify-content: space-between; }
+    .stage { flex-wrap: wrap; }
+    .stage span { flex-basis: 100%; order: 3; }
   }
   @media (prefers-reduced-motion: reduce) { .track *, .stage .dot { transition: none !important; animation: none !important; } }
 </style>
@@ -195,8 +201,9 @@
       ilumina
     </h1>
     <div class="stage" id="stage" hidden>
-      <i class="dot"></i><b id="stage-name" role="status"></b><span id="stage-hint"></span>
-      <button class="quiet" id="done" hidden>Done talking</button>
+      <i class="dot"></i><b id="stage-name"></b><span id="stage-hint"></span>
+      <button class="quiet" id="done" aria-disabled="true">Done talking</button>
+      <span class="sr" id="stage-say" role="status"></span>
     </div>
     <div class="session">
       <span class="mic" id="mic" hidden><span class="level" id="mic-level" role="img" aria-label="Microphone level"></span><span id="mic-text"></span></span>
