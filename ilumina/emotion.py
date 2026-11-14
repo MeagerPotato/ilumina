@@ -8,7 +8,7 @@ import base64
 
 from google import genai
 
-from ilumina.state import Reading
+from ilumina.state import Reading, level_of
 
 # The Decisions API is only served under v1beta; the SDK's default path returns 404.
 _API_VERSION = "v1beta"
@@ -62,6 +62,23 @@ def build_questions() -> dict:
     }
 
 
+def _band_confidence(answer, value: float, top: int) -> float:
+    """How sure the model is that the student is in the reading's low/medium/high band.
+
+    The API's own confidence is the chance of one exact rubric level, so it looks
+    unsure when the model is split between two neighbours that mean the same thing
+    to the tutor, such as "confused" and "lost".
+    """
+    probabilities = getattr(answer, "probabilities", None)
+    if not probabilities:
+        return answer.confidence
+    band = level_of(value)
+    try:
+        return sum(p for level, p in probabilities.items() if level_of(int(level) / top) == band)
+    except ValueError:  # level keys in a shape we have not seen: keep the API's own number
+        return answer.confidence
+
+
 def parse_answers(answers: dict) -> dict[str, Reading]:
     """Turn Decision 1 score answers into 0-to-1 readings."""
     readings = {}
@@ -69,10 +86,9 @@ def parse_answers(answers: dict) -> dict[str, Reading]:
         answer = answers.get(name)
         if getattr(answer, "type", None) != "score":
             continue
-        readings[name] = Reading(
-            value=answer.score / (len(criteria) - 1),
-            confidence=answer.confidence,
-        )
+        top = len(criteria) - 1
+        value = answer.score / top
+        readings[name] = Reading(value=value, confidence=_band_confidence(answer, value, top))
     return readings
 
 

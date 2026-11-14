@@ -66,7 +66,7 @@ All in `.env`:
 | `DEEPGRAM_API_KEY` | Deepgram speech to text and text to speech |
 | `DEEPGRAM_VOICE_ID` | Aura-2 voice, default `aura-2-helena-en` |
 | `GOOGLE_API_KEY` | Google AI Studio key |
-| `GOOGLE_MODEL` | Tutor brain, default `gemini-4-argon`. Use `gemini-4-hydrogen` if Argon is slow |
+| `GOOGLE_MODEL` | Tutor brain, default `gemini-4-hydrogen` (first words in about 1.5 s). `gemini-4-argon` thinks deeper but took over 4 s |
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
 | `ILUMINA_CAMERA` | `browser` (default) or `gopro` for the head-worn GoPro over USB. Needs FFmpeg (`brew install ffmpeg`) |
 | `GOPRO_IP` | Only if the GoPro is not found by itself |
