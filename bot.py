@@ -63,6 +63,12 @@ def recent_text(context: LLMContext, limit: int = 6) -> str:
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
     logger.info(f"Starting Ilumina (tutor model: {config.GOOGLE_MODEL})")
 
+    try:
+        memory_note = memory.tutor_note()
+    except Exception as e:  # noqa: BLE001 - memory is a bonus; the tutor must still start
+        logger.warning(f"Could not read memory, starting without it: {e}")
+        memory_note = ""
+
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
         api_key=config.DEEPGRAM_API_KEY,
@@ -73,7 +79,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
             # Lectures the student saved from the Vexo band, and past sessions, if any.
-            system_instruction=TUTOR_SYSTEM_PROMPT + memory.tutor_note(),
+            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note,
             # A spoken reply has to start fast. "low" is valid on every Gemini 4
             # model; left unset, Hydrogen thinks at "high" before it speaks.
             thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
@@ -161,10 +167,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        if config.SAVE_MEMORY and hard_moments:
-            path = memory.save("sessions", {"hard_moments": hard_moments})
-            logger.info(f"Saved this session's hard moments to {path}")
-        await runner.cancel()
+        try:
+            if config.SAVE_MEMORY and hard_moments:
+                path = memory.save("sessions", {"hard_moments": hard_moments})
+                logger.info(f"Saved this session's hard moments to {path}")
+        except Exception as e:  # noqa: BLE001 - never block shutting the session down
+            logger.warning(f"Could not save this session to memory: {e}")
+        finally:
+            await runner.cancel()
 
     await runner.run()
 

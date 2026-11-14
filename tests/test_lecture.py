@@ -92,3 +92,25 @@ def test_study_plan_uses_memory(tmp_path):
     plan = memory.study_plan(SimpleNamespace(models=models), "m", root=tmp_path)
     assert plan.startswith("## Day 1")
     assert "Forgetting to lower the power" in models.calls[0]["contents"]
+
+
+def test_a_broken_sound_source_is_reported_not_recorded_as_silence():
+    def broken():
+        yield vexo_band.encode_pcm(tone(0.1))[0]
+        raise OSError("no microphone")
+
+    try:
+        vexo_band.record(source=broken())
+    except RuntimeError as e:
+        assert "no microphone" in str(e)
+    else:
+        raise AssertionError("record() should have raised")
+
+
+def test_a_damaged_memory_file_is_skipped(tmp_path):
+    (tmp_path / "lectures").mkdir()
+    (tmp_path / "lectures" / "bad.json").write_text("{half")
+    memory.save(
+        "lectures", {"source": "mic", "transcript": "t", "notes": memory.empty_notes()}, tmp_path
+    )
+    assert "Untitled lecture" in memory.tutor_note(tmp_path)

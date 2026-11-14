@@ -23,7 +23,7 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 from google import genai
 
 from ilumina import config, memory, vexo_band
-from ilumina.transcribe import transcribe
+from ilumina.transcribe import to_wav, transcribe
 
 
 def ask_yes(question: str) -> bool:
@@ -34,16 +34,22 @@ def ask_yes(question: str) -> bool:
 
 
 def record(args) -> None:
+    # Check the keys first, so a lecture is never recorded for nothing.
+    missing = [k for k in ("DEEPGRAM_API_KEY", "GOOGLE_API_KEY") if not getattr(config, k)]
+    if missing:
+        sys.exit(f"Add {' and '.join(missing)} to .env first.")
     if args.band:
         print(f"Listening on Vexo band {args.band}. Double-tap it first so it can be found.")
         source = None
     elif args.file:
-        print(f"Playing {args.file} through the Vexo pretend band.")
+        print(f"Playing {args.file} through the Vexo pretend band (at real speed).")
         source = vexo_band.file_packets(args.file)
     else:
         print("Listening on this computer's microphone as the Vexo band's microphone.")
         source = vexo_band.mic_packets()
-    print("Tell the people near you that the lecture is being recorded. Ctrl+C to stop.")
+    print("Tell the people near you that the lecture is being recorded. When it ends, the")
+    print("sound goes to Deepgram for text and the text to Google Gemini for notes.")
+    print("Press Ctrl+C to stop.")
 
     def progress(seconds):
         print(f"\r  recording {int(seconds) // 60}:{int(seconds) % 60:02d}", end="", flush=True)
@@ -52,14 +58,27 @@ def record(args) -> None:
         source=source, seconds=args.seconds, band_number=args.band, on_progress=progress
     )
     print(f"\nGot {len(pcm) / 32000:.0f} seconds of sound. Sending it to Deepgram for text...")
-    transcript = transcribe(pcm, config.DEEPGRAM_API_KEY)
+    try:
+        transcript = transcribe(pcm, config.DEEPGRAM_API_KEY)
+    except RuntimeError as e:
+        print(e)
+        if ask_yes("Keep the recording on this computer so you can try again?"):
+            path = memory.MEMORY_DIR / "recordings" / f"{memory._now()}.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(to_wav(pcm))
+            print(f"Kept. Try again with: uv run lecture.py record --file {path}")
+        sys.exit(1)
     if not transcript:
         sys.exit("Deepgram heard no words. Check the microphone and try again.")
     print(f"\n--- Transcript ---\n{transcript[:1500]}{' ...' if len(transcript) > 1500 else ''}")
 
     print("\nMaking study notes with Gemini...")
-    client = genai.Client(api_key=config.GOOGLE_API_KEY)
-    notes = memory.lecture_notes(client, config.GOOGLE_MODEL, transcript)
+    try:
+        client = genai.Client(api_key=config.GOOGLE_API_KEY)
+        notes = memory.lecture_notes(client, config.GOOGLE_MODEL, transcript)
+    except Exception as e:  # noqa: BLE001 - keep the transcript even when notes fail
+        print(f"Gemini could not make notes ({e}). You can still save the transcript.")
+        notes = memory.empty_notes()
     print(f"\n--- {notes['title']} ({notes['subject']}) ---\n{notes['summary']}")
     for concept in notes["key_concepts"]:
         print(f"  * {concept['name']}: {concept['explanation']}")
@@ -71,7 +90,7 @@ def record(args) -> None:
         )
         print(f"Saved to {path}. Ilumina will use it in the next tutoring session.")
     else:
-        print("Not saved. Nothing was kept.")
+        print("Not saved. Nothing was kept on this computer.")
 
 
 def plan(args) -> None:

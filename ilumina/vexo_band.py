@@ -13,7 +13,9 @@ same code listens to the band's microphone instead.
 
 from __future__ import annotations
 
+import itertools
 import queue
+import signal
 import threading
 import time
 from collections.abc import Iterable, Iterator
@@ -124,6 +126,14 @@ def record(
     Stops after `seconds`, when the source ends, when `stop` is set, or on Ctrl+C.
     """
     stop = stop or threading.Event()
+    packets = None
+    if band_number is None and source is not None:
+        # Start the source here, so a microphone that cannot open fails now, not silently
+        # inside the feeding thread.
+        packets = iter(source)
+        first = next(packets, None)
+        packets = itertools.chain([] if first is None else [first], packets)
+
     if band_number is not None:
         band = Band.connect(band_number)
     else:
@@ -132,54 +142,78 @@ def record(
     decoder = audio.PcmDecoder()
     pcm = bytearray()
     band.on("audio", lambda a: pcm.extend(decoder.feed(a)))
-    band.configure(audio=True)  # a real band's light goes solid blue: the microphone is on
+    # A real band's light goes solid blue: the microphone is on. On the pretend band the
+    # mic-level stream also takes up the loudness curves that go with each batch.
+    band.configure(audio=True, mic_level=band_number is None)
 
-    feeder = None
-    sent = [0]
-    if band_number is None and source is not None:
+    sent = [0]  # packets handed to the pretend band
+    finished = threading.Event()
+    failure = []
 
-        def feed():
+    def feed():
+        try:
             batch = []
-            for packet in source:
+            for packet in packets:
                 if stop.is_set():
                     break
                 batch.append(packet)
-                if len(batch) == 5:  # 100 ms at a time
-                    band.transport.play_loudness(SPEECH_LEVEL, seconds=0.1, packets=batch)
+                # 200 ms first, so the band always has sound queued, then 100 ms at a time.
+                if len(batch) == (10 if sent[0] == 0 else 5):
+                    band.transport.play_loudness(
+                        SPEECH_LEVEL, seconds=0.02 * len(batch), packets=batch
+                    )
                     sent[0] += len(batch)
                     batch = []
                     # A file is ready at once; keep at most ~1 s queued so it plays in step.
-                    while sent[0] * 0.02 > (time.monotonic() - start) + 1 and not stop.is_set():
+                    while sent[0] * 0.02 > time.monotonic() - start + 1 and not stop.is_set():
                         time.sleep(0.05)
+            if hasattr(packets, "close"):
+                packets.close()
             if hasattr(source, "close"):
                 source.close()  # lets the live microphone close
             if batch:
                 band.transport.play_loudness(SPEECH_LEVEL, seconds=0.02 * len(batch), packets=batch)
                 sent[0] += len(batch)
-            # Let the band send what is queued (50 packets a second), then stop.
-            while time.monotonic() - start < sent[0] * 0.02 + 0.5 and not stop.is_set():
-                time.sleep(0.05)
-            stop.set()
+        except Exception as e:  # noqa: BLE001 - handed to the main thread below
+            failure.append(e)
+        finished.set()
 
-        feeder = threading.Thread(target=feed, daemon=True)
+    def queued_seconds() -> float:
+        """Sound handed to the pretend band that it has not sent yet."""
+        return sent[0] * 0.02 + 0.2 - (time.monotonic() - start)
+
+    # The band library's wait() swallows Ctrl+C, so catch it here to end the recording.
+    old_handler = None
+    if threading.current_thread() is threading.main_thread():
+        old_handler = signal.signal(signal.SIGINT, lambda *_: stop.set())
 
     start = time.monotonic()
-    if feeder:
+    feeder = None
+    if packets is not None:
+        feeder = threading.Thread(target=feed, daemon=True)
         feeder.start()
     try:
         while not stop.is_set():
-            band.wait(0.25)
+            if not band.wait(0.25):
+                break  # the band went away
             elapsed = time.monotonic() - start
             if on_progress:
                 on_progress(elapsed)
             if seconds is not None and elapsed >= seconds:
                 break
-    except KeyboardInterrupt:
-        pass
+            if failure or (finished.is_set() and queued_seconds() <= 0):
+                break
     finally:
         stop.set()
-        band.configure(audio=False)
-        band.disconnect()
         if feeder:
             feeder.join(timeout=2)
+            if 0 < queued_seconds() < 3:
+                band.wait(queued_seconds())  # let the last queued sound arrive
+        if old_handler is not None:
+            signal.signal(signal.SIGINT, old_handler)
+        if band.connected:
+            band.configure(audio=False, mic_level=False)
+        band.disconnect()
+    if failure:
+        raise RuntimeError(f"The sound source stopped: {failure[0]}") from failure[0]
     return bytes(pcm) + decoder.flush()

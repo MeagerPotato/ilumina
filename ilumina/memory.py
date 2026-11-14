@@ -1,6 +1,7 @@
 """Ilumina's memory: lectures heard through the Vexo band, tutoring sessions, study plans.
 
-Nothing is saved unless the student says yes. Lectures are saved only after the student
+Nothing is saved on this computer unless the student says yes. (The sound always goes to
+Deepgram for text, and the text to Google Gemini for notes, before the student is asked.) Lectures are saved only after the student
 agrees at the end of `lecture.py record` (or passes --save). Tutoring sessions are saved
 only when ILUMINA_MEMORY=on is set in .env. Everything stays in the local `memory/`
 folder (not in git); `uv run lecture.py forget` deletes it all.
@@ -97,7 +98,22 @@ def lecture_notes(client: genai.Client, model: str, transcript: str) -> dict:
         contents=NOTES_PROMPT.format(transcript=transcript),
         config=_config(response_mime_type="application/json", response_json_schema=NOTES_SCHEMA),
     )
+    if not response.text:
+        raise RuntimeError("Gemini returned no notes.")
     return json.loads(response.text)
+
+
+def empty_notes() -> dict:
+    """Notes for a lecture whose notes could not be made: the transcript is still kept."""
+    return {
+        "title": "Untitled lecture",
+        "subject": "unknown",
+        "summary": "No notes yet; the transcript is saved.",
+        "key_concepts": [],
+        "formulas": [],
+        "likely_confusions": [],
+        "check_questions": [],
+    }
 
 
 def save(kind: str, record: dict, root: Path = MEMORY_DIR) -> Path:
@@ -115,7 +131,13 @@ def load(kind: str, limit: int | None = None, root: Path = MEMORY_DIR) -> list[d
     paths = sorted(folder.glob("*.json"))
     if limit:
         paths = paths[-limit:]
-    return [json.loads(p.read_text()) for p in paths]
+    records = []
+    for p in paths:
+        try:
+            records.append(json.loads(p.read_text()))
+        except (OSError, ValueError):
+            continue  # a damaged file is skipped, never fatal
+    return records
 
 
 def forget(root: Path = MEMORY_DIR) -> None:
@@ -136,16 +158,16 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
         )
     ]
     for lec in lectures:
-        n = lec["notes"]
-        concepts = ", ".join(c["name"] for c in n.get("key_concepts", [])[:6])
-        lines.append(f'- Class "{n["title"]}": {concepts}.')
+        n = lec.get("notes") or {}
+        concepts = ", ".join(c.get("name", "") for c in n.get("key_concepts", [])[:6])
+        lines.append(f'- Class "{n.get("title", "untitled")}": {concepts or "no notes"}.')
         if n.get("likely_confusions"):
             lines.append(f"  Likely sticking points: {'; '.join(n['likely_confusions'][:3])}.")
     for s in sessions:
         for moment in s.get("hard_moments", [])[-2:]:
             lines.append(
-                f"- Earlier session, they struggled ({moment['state']}) here: "
-                f"{moment['said'][:200]}"
+                f"- Earlier session, they struggled ({moment.get('state', '?')}) here: "
+                f"{str(moment.get('said', ''))[:200]}"
             )
     return "\n".join(lines)
 
@@ -176,4 +198,6 @@ def study_plan(client: genai.Client, model: str, days: int = 3, root: Path = MEM
         ),
         config=_config(),
     )
+    if not response.text:
+        raise RuntimeError("Gemini returned no study plan. Try again.")
     return response.text.strip()
