@@ -104,13 +104,17 @@ def parse_answers(answers: dict) -> dict[str, Reading]:
 
 
 async def score_turn(
-    client: genai.Client, model: str, wav: bytes, recent_text: str
+    client: genai.Client, model: str, wav: bytes, recent_text: str, measured: str = ""
 ) -> dict[str, Reading]:
-    """Score one turn. `recent_text` is the last few lines of conversation for context."""
+    """Score one turn. `recent_text` is the last few lines of conversation for context.
+    `measured` is one line of Deepgram's timing measurements for the turn, if there are any."""
+    context = f"{_CONTEXT_NOTE}\n{recent_text}"
+    if measured:
+        context += f"\n\n{measured}"
     response = await client.aio.decisions.create(
         model=model,
         input=[
-            {"type": "text", "text": f"{_CONTEXT_NOTE}\n{recent_text}"},
+            {"type": "text", "text": context},
             {
                 "type": "audio",
                 "mime_type": "audio/wav",

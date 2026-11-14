@@ -1,20 +1,28 @@
-"""Pipecat processors: camera view and state note into the tutor, teaching move out."""
+"""Pipecat processors: voice evidence, camera view and state note in, teaching move out."""
 
 import asyncio
+import math
 import time
 
+import numpy as np
 from loguru import logger
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     Frame,
+    InputAudioRawFrame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
+    ProposedUserStartedSpeakingFrame,
+    TranscriptionFrame,
     UserImageRawFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
+from ilumina.evidence import voice_evidence
 from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
 
@@ -95,6 +103,110 @@ class CameraView(FrameProcessor):
         return True
 
 
+# Quieter than this, in dB below full scale, the microphone is sending near silence.
+SILENT_BELOW_DBFS = -50
+_LEVEL_EVERY_SECONDS, _LOG_EVERY_LEVELS = 1.0, 5
+
+
+class MicLevel(FrameProcessor):
+    """Sits right after the transport input and reports how loud the microphone is.
+
+    Once a second it tells the dashboard the loudest moment of that second, and every
+    few seconds it logs it. This is the sound exactly as speech to text gets it, so a
+    silent microphone and a turn that was not detected can be told apart. Only a
+    level is measured; no audio is kept. Every frame passes through untouched.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._peak = 0  # loudest sample since the last report
+        self._since = time.monotonic()
+        self._reports = 0
+        self._loudest_logged = SILENT_BELOW_DBFS * 2
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame) and frame.audio:
+            try:
+                samples = np.frombuffer(frame.audio, dtype=np.int16)
+                self._peak = max(self._peak, int(np.abs(samples.astype(np.int32)).max()))
+                if time.monotonic() - self._since >= _LEVEL_EVERY_SECONDS:
+                    await self._report()
+            except Exception as e:  # noqa: BLE001 - the meter must never cost a frame of audio
+                logger.debug(f"Mic level not measured: {e}")
+        await self.push_frame(frame, direction)
+
+    async def _report(self):
+        dbfs = round(20 * math.log10(max(self._peak, 1) / 32768))
+        self._peak, self._since = 0, time.monotonic()
+        self._reports += 1
+        self._loudest_logged = max(self._loudest_logged, dbfs)
+        if self._reports % _LOG_EVERY_LEVELS == 0:
+            logger.info(
+                f"Mic level: loudest {self._loudest_logged} dBFS in the last "
+                f"{_LOG_EVERY_LEVELS} seconds"
+            )
+            self._loudest_logged = SILENT_BELOW_DBFS * 2
+        await self.push_frame(
+            RTVIServerMessageFrame(
+                data={"type": "mic_level", "dbfs": dbfs, "silent": dbfs < SILENT_BELOW_DBFS}
+            )
+        )
+
+
+class VoiceEvidence(FrameProcessor):
+    """Sits right after speech to text and measures how each student turn was spoken.
+
+    Deepgram Flux sends word timings with every finished turn. From them, and from how
+    long the student waited before answering, this works out the turn's measured
+    evidence, reports it to the dashboard, and keeps it for the emotion scorer.
+    Every frame passes through untouched, and a failure here never stops the turn.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._tutor_speaking = False
+        self._tutor_stopped_at: float | None = None  # set when the tutor finishes by itself
+        self._waited: float | None = None
+        self._latest: dict | None = None
+
+    def take(self) -> dict | None:
+        """The newest turn's evidence, once. A later turn never gets an old one."""
+        latest, self._latest = self._latest, None
+        return latest
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, BotStartedSpeakingFrame):
+            self._tutor_speaking, self._tutor_stopped_at = True, None
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            # A stop the student caused (they cut in, so the tutor was no longer
+            # counted as speaking) is not the tutor finishing.
+            if self._tutor_speaking:
+                self._tutor_stopped_at = time.monotonic()
+            self._tutor_speaking = False
+        elif isinstance(frame, ProposedUserStartedSpeakingFrame):
+            # No wait when the student cut the tutor off. One wait per tutor reply:
+            # a second student turn in a row has none either.
+            self._tutor_speaking = False
+            stopped, self._tutor_stopped_at = self._tutor_stopped_at, None
+            self._waited = None if stopped is None else time.monotonic() - stopped
+            self._latest = None  # evidence nobody took belongs to an earlier turn
+        elif isinstance(frame, TranscriptionFrame):
+            try:
+                self._latest = voice_evidence(frame.result, self._waited)
+            except Exception as e:  # noqa: BLE001 - evidence is a bonus, the turn goes on
+                logger.warning(f"Voice evidence not measured for this turn: {e}")
+                self._latest = None
+            self._waited = None
+            logger.info(f"Voice evidence: {self._latest}")  # numbers only, never the words
+            # Sent even when empty, so the dashboard never shows an older turn's numbers.
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "voice_evidence", **(self._latest or {})})
+            )
+        await self.push_frame(frame, direction)
+
+
 class StudentStateInjector(FrameProcessor):
     """Sits right before the LLM.
 
@@ -129,16 +241,60 @@ class StudentStateInjector(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-# Longest opening we will hold back while looking for a move tag.
+# Longest opening we will hold back while looking for a tag that never closes.
 _MAX_TAG_CHARS = 48
+_MAX_SHOW_CHARS = 400  # a show tag carries a line of LaTeX
+
+
+def _closing_bracket(text: str) -> int:
+    """Where the bracket that opens `text` closes, counting brackets inside it. -1 if not yet."""
+    depth = 0
+    for i, char in enumerate(text):
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _read_tags(text: str) -> tuple[dict[str, str], str, bool]:
+    """Read the tags a reply opens with: (tags, the words after them, undecided).
+
+    `undecided` is True while more text is needed to know where the tags end.
+    """
+    tags: dict[str, str] = {}
+    rest = text.lstrip()
+    while rest.startswith("["):
+        start = rest[1:].lstrip().lower()
+        end = _closing_bracket(rest)
+        if end < 0:  # still arriving
+            if start.startswith("show:") or "show:".startswith(start):
+                # LaTeX must never be spoken: a show tag that runs away is dropped.
+                return (tags, rest, True) if len(rest) < _MAX_SHOW_CHARS else (tags, "", False)
+            if "move" in tags:
+                return tags, rest, False
+            return tags, rest, len(rest) < _MAX_TAG_CHARS
+        body = rest[1:end]
+        if start.startswith("show:"):
+            tags["show"] = body.split(":", 1)[1].strip()  # the last one written stays up
+        elif "move" in tags:
+            return tags, rest, False  # a second plain bracket is speech
+        else:
+            tags["move"] = body.removeprefix("move:").strip().lower()
+        rest = rest[end + 1 :].lstrip()
+    # With nothing after the tags yet, another tag may still be on its way.
+    return tags, rest, not rest
 
 
 class TeachingMoveTagger(FrameProcessor):
     """Sits right after the LLM.
 
-    The tutor starts each reply with a tag such as ``[move: smaller_hint]``.
-    This removes the tag before it is spoken and reports the move to the
-    dashboard. A reply with no tag passes through untouched.
+    The tutor starts each reply with a tag such as ``[move: smaller_hint]``, and may
+    add ``[show: x^2 - 9]`` with the math it is talking about, in LaTeX. This removes
+    the tags before the reply is spoken and reports them to the dashboard. A reply
+    with no tag passes through untouched.
     """
 
     def __init__(self, **kwargs):
@@ -151,22 +307,29 @@ class TeachingMoveTagger(FrameProcessor):
             self._held = ""
         elif isinstance(frame, LLMTextFrame) and self._held is not None:
             self._held += frame.text
-            text = self._held.lstrip()
-            if text.startswith("[") and "]" in text:
-                tag, _, rest = text[1:].partition("]")
-                move = tag.removeprefix("move:").strip().lower()
-                await self.push_frame(
-                    RTVIServerMessageFrame(data={"type": "teaching_move", "move": move})
-                )
-                text = rest.lstrip()
-            elif not text or (text.startswith("[") and len(text) < _MAX_TAG_CHARS):
-                return  # keep holding until the tag closes or clearly is not one
+            tags, text, undecided = _read_tags(self._held)
+            if undecided:
+                return  # keep holding until the tags close or clearly are not tags
+            await self._report(tags)
             self._held = None
             if not text:
                 return
             frame.text = text
         elif isinstance(frame, LLMFullResponseEndFrame) and self._held:
-            # The reply ended while we were still holding text. Speak it.
-            await self.push_frame(LLMTextFrame(self._held), direction)
+            # The reply ended while we were still holding text. Speak what is not a tag.
+            tags, text, _ = _read_tags(self._held)
+            await self._report(tags)
+            if text:
+                await self.push_frame(LLMTextFrame(text), direction)
             self._held = None
         await self.push_frame(frame, direction)
+
+    async def _report(self, tags: dict[str, str]):
+        if "move" in tags:
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "teaching_move", "move": tags["move"]})
+            )
+        if tags.get("show"):
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "board", "latex": tags["show"]})
+            )

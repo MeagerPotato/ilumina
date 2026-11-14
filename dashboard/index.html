@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./vendor/katex/katex.min.css">
 <style>
   :root {
     --paper: #f6f8fb; --panel: #ffffff; --ink: #14213d; --muted: #5b6780; --grid: #d9e1ec;
@@ -33,8 +34,12 @@
   }
   button:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   button[disabled] { opacity: .55; cursor: default; }
-  .session { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+  .session { display: flex; align-items: center; gap: 10px 16px; margin-left: auto; flex-wrap: wrap; }
   .status { color: var(--muted); font-size: 15px; }
+  .mic { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 15px; }
+  .mic .level { width: 72px; height: 10px; border: 1.5px solid var(--ink); border-radius: 5px; overflow: hidden; background: var(--panel); }
+  .mic .level i { display: block; height: 100%; width: 0; background: var(--confidence); transition: width .25s; }
+  .mic.silent { color: var(--warn); }
   .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
@@ -66,6 +71,12 @@
   .note.stale { border-color: var(--warn); color: var(--warn); }
   .move { margin: 0 0 14px; font-size: 20px; }
   .move b { font-weight: 800; }
+  /* The one dark surface on the page: what the tutor has written up, like a board. */
+  .board { margin: 0 0 14px; padding: 12px 16px 16px; border-radius: 6px; background: var(--ink); color: #fff; overflow-x: auto; }
+  .board h3 { font-size: 14px; font-weight: 400; margin: 0 0 6px; opacity: .7; }
+  .board .math { font-size: 21px; }
+  .board .katex-display { margin: 0; text-align: left; }
+  .board .katex-display > .katex { text-align: left; }
   .lines { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
   .lines li { padding: 6px 0; border-top: 1px solid var(--grid); }
   .lines li b { font-weight: 600; }
@@ -81,7 +92,24 @@
   .camera select:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   .seen { color: var(--muted); font-size: 15px; }
   .scored { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .measured { margin: 18px 0 0; padding-top: 14px; border-top: 1.5px solid var(--ink); }
+  .measured h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  .measured dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px 18px; margin: 0; }
+  .measured dl div { display: flex; flex-direction: column-reverse; justify-content: flex-end; } /* number on top, tops level */
+  .measured dt { color: var(--muted); font-size: 14px; }
+  .measured dd { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
   .running { color: var(--muted); font-size: 15px; margin: 20px 0 0; max-width: 78ch; }
+
+  .memory .class { margin: 0 0 12px; }
+  .memory .class b { font-weight: 600; }
+  .memory .class > span { display: block; color: var(--muted); font-size: 15px; }
+  .memory h3 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; padding-top: 14px; border-top: 1.5px solid var(--ink); }
+  .memory .plan { max-height: 280px; overflow: auto; font-size: 15.5px; }
+  .memory .plan h4 { font-size: 15.5px; font-weight: 800; margin: 12px 0 4px; }
+  .memory .plan h4:first-child { margin-top: 0; }
+  .memory .plan p { margin: 0 0 6px; }
+  .memory .plan ul { margin: 0 0 8px; padding-left: 20px; }
+  .memory .kept { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
 
   .trace { margin-top: 20px; }
   .trace svg { width: 100%; height: auto; display: block; }
@@ -90,7 +118,7 @@
 
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } h1 { font-size: 40px; } }
   @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } }
-  @media (prefers-reduced-motion: reduce) { .track * { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) { .track *, .mic .level i { transition: none !important; } }
 </style>
 </head>
 <body>
@@ -99,6 +127,7 @@
     <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
     <div class="session">
+      <span class="mic" id="mic" hidden><span class="level" role="img" aria-label="Microphone level"><i id="mic-fill"></i></span><span id="mic-text"></span></span>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>
@@ -115,6 +144,10 @@
         <span><i class="k-est"></i>smoothed estimate</span>
         <span><i class="k-read"></i>this turn's reading</span>
         <span><i class="k-band"></i>wider means less sure</span>
+      </div>
+      <div class="measured" id="measured" hidden>
+        <h3>Measured by Deepgram on your last turn</h3>
+        <dl id="evidence"></dl>
       </div>
       <p class="scored" id="scored" hidden></p>
     </section>
@@ -137,12 +170,19 @@
       </div>
     </section>
     </div>
+    <div class="stack">
     <section aria-labelledby="talk-h">
       <h2 id="talk-h">What Ilumina was told, and what it chose</h2>
       <p class="note" id="note">Nothing yet. Ilumina gets a one-line summary before each reply.</p>
       <p class="move" id="move" hidden>Ilumina chose: <b id="move-name"></b></p>
+      <div class="board" id="board" hidden><h3>On the board</h3><div class="math" id="board-math"></div></div>
       <ul class="lines" id="lines" aria-live="polite"></ul>
     </section>
+    <section class="memory" aria-labelledby="mem-h">
+      <h2 id="mem-h">What Ilumina remembers</h2>
+      <div id="memory"><p class="empty">Start a session to see what Ilumina remembers from your classes.</p></div>
+    </section>
+    </div>
   </div>
 
   <section class="trace" aria-labelledby="trace-h">
@@ -152,6 +192,7 @@
   <p class="running" id="running" hidden></p>
   <audio id="bot-audio" autoplay></audio>
 </main>
+<script src="./vendor/katex/katex.min.js"></script>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

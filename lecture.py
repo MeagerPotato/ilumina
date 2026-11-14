@@ -4,6 +4,7 @@
     uv run lecture.py record --seconds 60     stop after a minute
     uv run lecture.py record --file talk.m4a  a recording instead of the live mic
     uv run lecture.py record --band 42        a real Vexo band (its own mic, Bluetooth)
+    uv run lecture.py record --text talk.txt  a transcript you already have, no sound
     uv run lecture.py plan                    a study plan from everything in memory
     uv run lecture.py show                    what Ilumina remembers
     uv run lecture.py forget                  delete all of it
@@ -14,6 +15,7 @@ Nothing goes into memory unless you say yes at the end (or pass --save).
 import argparse
 import os
 import sys
+from pathlib import Path
 
 import certifi
 
@@ -33,7 +35,23 @@ def ask_yes(question: str) -> bool:
         return False
 
 
-def record(args) -> None:
+def read_text(path: str) -> str:
+    """A transcript someone already has, as text. Skips the band and Deepgram."""
+    if not config.GOOGLE_API_KEY:
+        sys.exit("Add GOOGLE_API_KEY to .env first.")
+    try:
+        transcript = Path(path).read_text().strip()
+    except (OSError, ValueError) as e:  # missing, or not plain text
+        sys.exit(f"Could not read {path}: {e}")
+    if not transcript:
+        sys.exit(f"{path} is empty.")
+    print(f"Read {len(transcript.split())} words from {path}.")
+    print("This text did not come through the Vexo band. It goes to Google Gemini for notes.")
+    return transcript
+
+
+def listen(args) -> str:
+    """Record through the Vexo band library and get the words from Deepgram."""
     # Check the keys first, so a lecture is never recorded for nothing.
     missing = [k for k in ("DEEPGRAM_API_KEY", "GOOGLE_API_KEY") if not getattr(config, k)]
     if missing:
@@ -70,6 +88,11 @@ def record(args) -> None:
         sys.exit(1)
     if not transcript:
         sys.exit("Deepgram heard no words. Check the microphone and try again.")
+    return transcript
+
+
+def record(args) -> None:
+    transcript = read_text(args.text) if args.text else listen(args)
     print(f"\n--- Transcript ---\n{transcript[:1500]}{' ...' if len(transcript) > 1500 else ''}")
 
     print("\nMaking study notes with Gemini...")
@@ -84,7 +107,10 @@ def record(args) -> None:
         print(f"  * {concept['name']}: {concept['explanation']}")
 
     if args.save or ask_yes("\nSave this lecture to Ilumina's memory so the tutor can use it?"):
-        source_name = f"band {args.band}" if args.band else (args.file or "computer mic")
+        if args.text:
+            source_name = f"text file {args.text}"
+        else:
+            source_name = f"band {args.band}" if args.band else (args.file or "computer mic")
         path = memory.save(
             "lectures", {"source": source_name, "transcript": transcript, "notes": notes}
         )
@@ -96,7 +122,7 @@ def record(args) -> None:
 def plan(args) -> None:
     client = genai.Client(api_key=config.GOOGLE_API_KEY)
     text = memory.study_plan(client, config.GOOGLE_MODEL, days=args.days)
-    path = memory.MEMORY_DIR / "study-plan.md"
+    path = memory.PLAN_PATH
     path.write_text(text + "\n")
     print(text)
     print(f"\n(Also saved to {path})")
@@ -127,6 +153,7 @@ def main() -> None:
     rec.add_argument("--seconds", type=float, help="stop after this many seconds")
     rec.add_argument("--file", help="a sound file to use instead of the live microphone")
     rec.add_argument("--band", type=int, help="number of a real Vexo band to listen to")
+    rec.add_argument("--text", help="a transcript in a text file, instead of sound")
     rec.add_argument("--save", action="store_true", help="save to memory without asking")
     rec.set_defaults(run=record)
     pl = sub.add_parser("plan", help="make a study plan from memory")

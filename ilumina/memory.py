@@ -18,6 +18,7 @@ from google import genai
 from google.genai import types
 
 MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
+PLAN_PATH = MEMORY_DIR / "study-plan.md"
 
 NOTES_SCHEMA = {
     "type": "object",
@@ -61,7 +62,9 @@ NOTES_SCHEMA = {
 NOTES_PROMPT = """Below is the transcript of a lecture or class conversation, recorded by \
 the student's Vexo band. Turn it into study notes for an AI tutor that will later help \
 this student. Use only what is in the transcript. If the transcript is too short or not \
-a lecture, say so in the summary and leave the lists short.
+a lecture, say so in the summary and leave the lists short. Write every formula and math \
+expression in LaTeX between single dollar signs, like $x^2$ or $\\frac{{u}}{{v}}$. Keep \
+the title in plain words with no LaTeX, because the tutor says it aloud.
 
 Transcript:
 {transcript}"""
@@ -73,7 +76,8 @@ Use what the student heard in class (lecture notes, recorded by their Vexo band)
 their tutoring sessions went (moments where they sounded confused or frustrated). Put the \
 ideas they struggled with first. For each day give one goal, two or three concrete \
 practice tasks, and one question to check they got it. End with one line on what you \
-will watch for in the next tutoring session. Keep it under 300 words.
+will watch for in the next tutoring session. Keep it under 300 words. Write every formula \
+and math expression in LaTeX between single dollar signs, like $x^2$.
 
 Lecture notes:
 {lectures}
@@ -170,6 +174,28 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
                 f"{str(moment.get('said', ''))[:200]}"
             )
     return "\n".join(lines)
+
+
+def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:
+    """What the dashboard shows of memory: what `tutor_note` tells the tutor, as data,
+    plus the newest study plan if one was made. Notes only, never a transcript."""
+    lectures = []
+    for lec in load("lectures", limit, root):
+        n = lec.get("notes") or {}
+        lectures.append(
+            {
+                "title": n.get("title", "untitled"),
+                "subject": n.get("subject", ""),
+                "concepts": [c.get("name", "") for c in n.get("key_concepts", [])[:6]],
+                "sticking_points": n.get("likely_confusions", [])[:3],
+            }
+        )
+    hard_moments = sum(len(s.get("hard_moments", [])[-2:]) for s in load("sessions", limit, root))
+    try:
+        plan = (root / PLAN_PATH.name).read_text().strip()
+    except (OSError, ValueError):  # missing, or not readable as text
+        plan = ""
+    return {"lectures": lectures, "hard_moments": hard_moments, "plan": plan}
 
 
 def _lectures_text(lectures: list[dict]) -> str:

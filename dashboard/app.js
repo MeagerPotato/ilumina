@@ -41,6 +41,75 @@ function renderNow(snapshot) {
   }).join("");
 }
 
+// Deepgram's word timings for the turn, as measured. A wait is only there when one was measured.
+function renderEvidence(e) {
+  $("measured").hidden = e.words == null; // a turn with nothing measured shows nothing
+  if (e.words == null) return;
+  const seconds = (v) => `${v.toFixed(1)} s`;
+  const cells = [
+    e.words_per_minute == null
+      ? [e.words, e.words === 1 ? "word, too few for a pace" : "words, too few for a pace"]
+      : [e.words_per_minute, "words a minute"],
+    [seconds(e.longest_pause), "longest pause"],
+    [e.fillers, e.fillers === 1 ? "um or uh" : "ums and uhs"],
+  ];
+  if (e.waited != null) cells.push([seconds(e.waited), "before you answered"]);
+  $("evidence").innerHTML = cells.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+}
+
+// Memory: the classes the tutor was told about, and the study plan, as the bot sent them.
+// The text was written by a model from the student's own class, so it is escaped.
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// Math: text between dollar signs is LaTeX, drawn by KaTeX. If KaTeX did not load,
+// or cannot read it, the math is shown as it was written.
+function tex(latex, display = false) {
+  try {
+    return window.katex.renderToString(latex, { displayMode: display, throwOnError: false });
+  } catch {
+    return esc(latex);
+  }
+}
+const withMath = (text) => String(text).split(/(\$\$[^$]+\$\$|\$[^$\n]+\$)/).map((part, i) =>
+  i % 2 ? tex(part.replace(/^\$+|\$+$/g, ""), part.startsWith("$$")) : esc(part)).join("");
+
+function planHtml(markdown) {
+  const inline = (t) => withMath(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  let html = "", inList = false;
+  for (const raw of markdown.split("\n")) {
+    const line = raw.trim();
+    const item = line.match(/^(?:[-*]|\d+\.)\s+(.*)/);
+    if (item) {
+      html += `${inList ? "" : "<ul>"}<li>${inline(item[1])}</li>`;
+      inList = true;
+      continue;
+    }
+    if (inList) { html += "</ul>"; inList = false; }
+    const heading = line.match(/^#+\s+(.*)/);
+    if (heading) html += `<h4>${inline(heading[1])}</h4>`;
+    else if (line) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+function renderMemory(m) {
+  const classes = (m.lectures ?? []).map((c) => {
+    const stuck = (c.sticking_points ?? []).length ? `<span>Likely sticking points: ${withMath(c.sticking_points.join("; "))}</span>` : "";
+    return `<p class="class"><b>${withMath(c.title)}</b>
+      <span>${withMath([c.subject, (c.concepts ?? []).join(", ")].filter(Boolean).join(": "))}</span>${stuck}</p>`;
+  }).join("");
+  const moments = m.hard_moments
+    ? `<p class="class"><b>Earlier sessions</b><span>${Number(m.hard_moments)} ${m.hard_moments === 1 ? "moment" : "moments"} where you sounded stuck</span></p>`
+    : "";
+  if (!classes && !moments && !m.plan) {
+    $("memory").innerHTML = `<p class="empty">Nothing saved yet. Record a class and Ilumina opens the next session from it.</p>`;
+    return;
+  }
+  $("memory").innerHTML = classes + moments
+    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
+    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.</p>`;
+}
+
 function renderTrace() {
   const W = 1100, rowH = 84, padL = 110, padR = 20, top = 8;
   const n = Math.max(history.length, 8);
@@ -73,6 +142,8 @@ function addLine(who, text) {
   $("lines").scrollTop = $("lines").scrollHeight;
 }
 
+let micTimer;
+
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
@@ -85,9 +156,30 @@ function receive(msg) {
       $("scored").hidden = false;
       $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
     }
+  } else if (msg?.type === "mic_level") {
+    // How loud the bot hears the microphone, from 60 dB below full scale up to full scale.
+    $("mic").hidden = false;
+    $("mic").classList.toggle("silent", msg.silent);
+    $("mic-fill").style.width = pct((msg.dbfs + 60) / 60);
+    $("mic-text").textContent = msg.silent ? "Mic is silent" : "Mic is live";
+    // Levels come once a second. If they stop, no sound is reaching the bot at all.
+    clearTimeout(micTimer);
+    micTimer = setTimeout(() => {
+      $("mic").classList.add("silent");
+      $("mic-fill").style.width = "0";
+      $("mic-text").textContent = "No sound is arriving";
+    }, 3000);
+  } else if (msg?.type === "voice_evidence") {
+    renderEvidence(msg);
+  } else if (msg?.type === "memory") {
+    renderMemory(msg);
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;
+  } else if (msg?.type === "board") {
+    // The math the tutor is talking about. It stays up until the tutor writes something new.
+    $("board").hidden = false;
+    $("board-math").innerHTML = tex(msg.latex, true);
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
     const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
@@ -195,7 +287,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
