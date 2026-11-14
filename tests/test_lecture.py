@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 from vexo_open import audio
 
+import lecture
 from ilumina import memory, transcribe, vexo_band
 
 
@@ -114,3 +115,50 @@ def test_a_damaged_memory_file_is_skipped(tmp_path):
         "lectures", {"source": "mic", "transcript": "t", "notes": memory.empty_notes()}, tmp_path
     )
     assert "Untitled lecture" in memory.tutor_note(tmp_path)
+
+
+def test_the_dashboard_overview_has_notes_and_the_plan_but_never_the_transcript(tmp_path):
+    assert memory.overview(tmp_path) == {"lectures": [], "hard_moments": 0, "plan": ""}
+    memory.save(
+        "lectures", {"source": "mic", "transcript": "SECRET WORDS", "notes": NOTES}, tmp_path
+    )
+    (tmp_path / "study-plan.md").write_text("## Day 1\nPower rule\n")
+    overview = memory.overview(tmp_path)
+    memory.save("sessions", {"hard_moments": [{"state": "confusion", "said": "x^3?"}]}, tmp_path)
+    overview = memory.overview(tmp_path)
+    assert overview == {
+        "lectures": [
+            {
+                "title": "Derivatives",
+                "subject": "Calculus",
+                "concepts": ["Power rule"],
+                "sticking_points": ["Forgetting to lower the power"],
+            }
+        ],
+        "hard_moments": 1,
+        "plan": "## Day 1\nPower rule",
+    }
+    assert "SECRET WORDS" not in json.dumps(overview) and "x^3?" not in json.dumps(overview)
+
+    (tmp_path / "study-plan.md").write_bytes(b"\xff\xfe plan saved in another encoding")
+    assert memory.overview(tmp_path)["plan"] == ""  # unreadable plan, the rest still shows
+
+
+def test_a_text_transcript_is_read_without_the_band_or_deepgram(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(lecture.config, "GOOGLE_API_KEY", "k")
+    monkeypatch.setattr(lecture.config, "DEEPGRAM_API_KEY", None)  # not needed for text
+    talk = tmp_path / "talk.txt"
+    talk.write_text("\n  Today: the product rule.  \n")
+    assert lecture.read_text(str(talk)) == "Today: the product rule."
+    assert "did not come through the Vexo band" in capsys.readouterr().out
+
+    talk.write_text("   ")
+    not_text = tmp_path / "talk.docx"
+    not_text.write_bytes(b"\xff\xfe\x00 not plain text")
+    for path in (talk, not_text, tmp_path / "missing.txt"):
+        try:
+            lecture.read_text(str(path))
+        except SystemExit as e:
+            assert str(path) in str(e)
+        else:
+            raise AssertionError("read_text() should have stopped")

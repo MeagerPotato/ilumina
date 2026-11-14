@@ -58,11 +58,12 @@ from ilumina.emotion import score_turn
 from ilumina.evidence import describe_evidence
 from ilumina.processors import (
     CameraView,
+    MicLevel,
     StudentStateInjector,
     TeachingMoveTagger,
     VoiceEvidence,
 )
-from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
+from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
 
 headcam = None
@@ -95,6 +96,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     except Exception as e:  # noqa: BLE001 - memory is a bonus; the tutor must still start
         logger.warning(f"Could not read memory, starting without it: {e}")
         memory_note = ""
+    try:
+        remembered = memory.overview()
+    except Exception as e:  # noqa: BLE001 - the panel is a bonus on top of that
+        logger.warning(f"Could not read memory for the dashboard: {e}")
+        remembered = None
 
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
@@ -130,6 +136,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     pipeline = Pipeline(
         [
             transport.input(),
+            MicLevel(),
             stt,
             voice_evidence,
             user_aggregator,
@@ -214,7 +221,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 }
             )
         )
-        context.add_message({"role": "developer", "content": GREETING_NOTE})
+        if remembered:
+            # What the tutor was told it remembers, so the student can see it too.
+            await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
+        greeting = GREETING_NOTE
+        if memory_note and remembered and remembered["lectures"]:
+            # Open from the newest class, by name, so the tutor does not pick an older one.
+            newest = remembered["lectures"][-1]["title"]
+            greeting = GREETING_WITH_MEMORY_NOTE.format(title=newest)
+        context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
