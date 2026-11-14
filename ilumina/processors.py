@@ -28,7 +28,8 @@ def _answers_student(frame: Frame) -> bool:
     if not isinstance(frame, LLMContextFrame) or frame.speculation:
         return False
     messages = frame.context.get_messages()
-    return bool(messages) and messages[-1].get("role") == "user"
+    last = messages[-1] if messages else None
+    return isinstance(last, dict) and last.get("role") == "user"
 
 
 class CameraView(FrameProcessor):

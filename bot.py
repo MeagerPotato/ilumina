@@ -59,6 +59,8 @@ def recent_text(context: LLMContext, limit: int = 6) -> str:
     """The last few spoken lines, as plain text, for the emotion model."""
     lines = []
     for message in context.get_messages():
+        if not isinstance(message, dict):
+            continue  # model-specific entries, such as Gemini's thinking records, are not speech
         role, content = message.get("role"), message.get("content")
         if role in ("user", "assistant") and isinstance(content, str):
             lines.append(f"{'Student' if role == 'user' else 'Tutor'}: {content}")
