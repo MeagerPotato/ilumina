@@ -69,6 +69,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
             system_instruction=TUTOR_SYSTEM_PROMPT,
+            # A spoken reply has to start fast. "low" is valid on every Gemini 4
+            # model; left unset, Hydrogen thinks at "high" before it speaks.
+            thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
         ),
     )
 
