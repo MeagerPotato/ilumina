@@ -40,6 +40,18 @@
   .mic .level { width: 72px; height: 10px; border: 1.5px solid var(--ink); border-radius: 5px; overflow: hidden; background: var(--panel); }
   .mic .level i { display: block; height: 100%; width: 0; background: var(--confidence); transition: width .25s; }
   .mic.silent { color: var(--warn); }
+  /* Where the conversation is right now. It stays in view while the page scrolls. */
+  .stage { position: sticky; top: 10px; z-index: 5; display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin: 14px 0 0; padding: 12px 18px; background: var(--panel); border: 1.5px solid var(--ink); border-left: 12px solid var(--muted); border-radius: 6px; }
+  .stage p { margin: 0; flex: 1 1 24ch; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+  .stage b { display: block; color: var(--ink); font-size: 28px; font-weight: 800; line-height: 1.15; }
+  /* The hint keeps its room, so the page below does not jump while the student talks. */
+  .stage p span { display: block; min-height: 1.45em; }
+  .stage button[aria-disabled="true"] { opacity: .3; cursor: default; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .stage[data-stage="listening"] { border-left-color: var(--engagement); }
+  .stage[data-stage="hearing"] { border-left-color: var(--confidence); }
+  .stage[data-stage="thinking"] { border-left-color: var(--warn); }
+  .stage[data-stage="speaking"] { border-left-color: var(--confusion); }
   .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
@@ -117,7 +129,7 @@
   .trace text.dimname { fill: var(--ink); font-weight: 600; font-size: 14px; }
 
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } h1 { font-size: 40px; } }
-  @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } .stage p span { min-height: 4.35em; } }
   @media (prefers-reduced-motion: reduce) { .track *, .mic .level i { transition: none !important; } }
 </style>
 </head>
@@ -133,6 +145,11 @@
     </div>
   </header>
   <p class="problem" id="problem" role="alert" hidden></p>
+  <div class="stage" id="stage" hidden>
+    <p><b id="stage-name"></b><span id="stage-hint"></span></p>
+    <button id="done" aria-disabled="true">Done talking</button>
+    <span class="sr" id="stage-say" role="status"></span>
+  </div>
   <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
 
   <div class="cols">
