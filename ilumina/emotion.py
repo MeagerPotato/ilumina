@@ -64,7 +64,7 @@ def parse_answers(answers: dict) -> dict[str, Reading]:
     readings = {}
     for name, criteria in RUBRICS.items():
         answer = answers.get(name)
-        if answer is None:
+        if getattr(answer, "type", None) != "score":
             continue
         readings[name] = Reading(
             value=answer.score / (len(criteria) - 1),
@@ -88,5 +88,6 @@ async def score_turn(
             },
         ],
         questions=build_questions(),
+        timeout=5,
     )
     return parse_answers(response.answers or {})

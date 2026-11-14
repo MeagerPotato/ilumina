@@ -93,11 +93,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
 
-    @audio_buffer.event_handler("on_user_turn_audio")
-    async def on_user_turn_audio(buffer, turn):
+    # "on_user_turn_audio_data" fires the moment the student stops speaking.
+    # The newer "on_user_turn_audio" only fires after the bot has replied, which
+    # is too late to shape that reply. Deprecated in Pipecat 2.0; we pin <2.
+    @audio_buffer.event_handler("on_user_turn_audio_data")
+    async def on_user_turn_audio(buffer, audio, sample_rate, num_channels):
         """Score the turn that just ended. A failure here never stops the tutor."""
         try:
-            wav = pcm_to_wav(turn.audio, turn.sample_rate, turn.num_channels)
+            wav = pcm_to_wav(audio, sample_rate, num_channels)
             readings = await score_turn(
                 decisions_client, config.DECISION_MODEL, wav, recent_text(context)
             )

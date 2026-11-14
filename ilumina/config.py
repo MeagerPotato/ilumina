@@ -14,4 +14,4 @@ DECISION_MODEL = os.getenv("DECISION_MODEL") or "gemini-decision-1"
 
 # The tutor waits at most this long for the emotion reading of the turn that
 # just ended. After that it answers with the last known state.
-STATE_WAIT_SECONDS = 0.3
+STATE_WAIT_SECONDS = 0.4

@@ -27,9 +27,19 @@ class StudentStateInjector(FrameProcessor):
         self._snapshot = snapshot
         self._fresh.set()
 
+    @staticmethod
+    def _answers_student(frame: LLMContextFrame) -> bool:
+        """True when the reply is to something the student just said (not the greeting)."""
+        messages = frame.context.get_messages()
+        return bool(messages) and messages[-1].get("role") == "user"
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, LLMContextFrame) and not frame.speculation:
+        if (
+            isinstance(frame, LLMContextFrame)
+            and not frame.speculation
+            and self._answers_student(frame)
+        ):
             try:
                 await asyncio.wait_for(self._fresh.wait(), self._wait_seconds)
             except TimeoutError:

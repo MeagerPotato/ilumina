@@ -9,7 +9,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 - **Voice path.** Browser mic, Deepgram Flux speech to text and turn detection, a Gemini tutor model, Deepgram Aura-2 text to speech.
 - **Emotion path.** The audio of each student turn goes to Gemini Decision 1, which scores confusion, frustration, confidence and engagement with a confidence value for each.
 - **State tracker.** Plain Python that smooths the scores over turns. A single odd turn is a blip. Two turns in a row, or one very confident reading, is a trend.
-- **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.3 seconds for it, so voice never blocks on emotion.
+- **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
 - **Dashboard feed.** Every state update is sent to the browser as a `student_state` server message.
 
 All readings are estimates of how the student sounds, not facts about how they feel.

@@ -32,6 +32,14 @@ def test_one_very_confident_reading_changes_level_at_once():
     assert d["status"] == "trend" and d["level"] == "high"
 
 
+def test_mixed_readings_away_from_level_follow_the_estimate():
+    t = StateTracker()
+    turn(t, 0.1)
+    assert turn(t, 0.9)["status"] == "blip"
+    d = turn(t, 0.5)
+    assert d["status"] == "trend" and d["level"] != "low"
+
+
 def test_low_confidence_moves_the_estimate_less():
     sure, unsure = StateTracker(), StateTracker()
     turn(sure, 0.0)
@@ -51,6 +59,9 @@ def test_questions_and_answer_parsing():
     questions = build_questions()
     assert set(questions) == set(RUBRICS)
     assert all(q["type"] == "score" and len(q["criteria"]) == 5 for q in questions.values())
-    answers = {"confusion": SimpleNamespace(score=3.0, confidence=0.7)}
+    answers = {
+        "confusion": SimpleNamespace(type="score", score=3.0, confidence=0.7),
+        "frustration": SimpleNamespace(type="unknown"),
+    }
     readings = parse_answers(answers)
     assert readings == {"confusion": Reading(0.75, 0.7)}

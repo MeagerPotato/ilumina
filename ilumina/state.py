@@ -9,7 +9,7 @@ from dataclasses import dataclass
 DIMENSIONS = ("confusion", "frustration", "confidence", "engagement")
 
 # A single reading this confident may change the level without a second turn.
-STRONG_CONFIDENCE = 0.85
+STRONG_CONFIDENCE = 0.7
 
 
 @dataclass
@@ -74,6 +74,14 @@ class StateTracker:
             self._level[name] = seen
             self._pending.pop(name, None)
             return "trend"
+        if name in self._pending:
+            # Second turn in a row away from the current level, but the two turns
+            # disagree with each other. Follow the smoothed estimate.
+            settled = level_of(self._estimate[name])
+            if settled != self._level[name]:
+                self._level[name] = settled
+                self._pending.pop(name, None)
+                return "trend"
         self._pending[name] = seen
         return "blip"
 
