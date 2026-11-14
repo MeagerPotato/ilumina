@@ -12,8 +12,9 @@ Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per t
               -> shown on the dashboard and given to Decision 1 beside the audio
 Camera path:  the newest camera frame is shown to the tutor with each student turn
               (the browser's camera, or the head-worn GoPro with ILUMINA_CAMERA=gopro)
-Band:         with ILUMINA_BAND set, the student's Vexo band: a double tap means "done
-              talking" and its light shows whose turn it is
+Band:         with ILUMINA_BAND set, the student's Vexo band is the live microphone (the
+              computer's takes over when the band's sound stops), and a double tap on
+              it means "done talking"
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
               stripped before speech and shown on the dashboard
 
@@ -69,6 +70,7 @@ from ilumina.emotion import score_turn
 from ilumina.measured import measure_turn
 from ilumina.processors import (
     BandLight,
+    BandMic,
     CameraView,
     MicLevel,
     StudentStateInjector,
@@ -114,7 +116,7 @@ band_link = None
 if config.BAND_USB or config.BAND_NUMBER:
     from ilumina.band_link import BandLink
 
-    band_link = BandLink(config.BAND_NUMBER, usb=config.BAND_USB)
+    band_link = BandLink(config.BAND_NUMBER, usb=config.BAND_USB, mic=config.BAND_MIC)
 
 
 def recent_text(context: LLMContext, limit: int = 6) -> str:
@@ -211,6 +213,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     pipeline = Pipeline(
         [
             transport.input(),
+            *([BandMic(band_link)] if band_link else []),
             MicLevel(),
             stt,
             voice_evidence,
@@ -439,6 +442,15 @@ if __name__ == "__main__":
         only_the_dashboard(request)
         picked["mode"] = "review" if name == "review" else "homework"
         return picked
+
+    if band_link:
+
+        @app.post("/band/mic/{state}")
+        def switch_band_mic(state: str, request: Request):
+            """The dashboard picks the band's microphone or the computer's."""
+            only_the_dashboard(request)
+            band_link.use_mic(state == "on")
+            return {"mic": band_link.mic}
 
     if headcam:
 

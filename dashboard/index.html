@@ -245,6 +245,7 @@
       </fieldset>
       <span class="mic" id="mic" hidden><span class="level" id="mic-level" role="img" aria-label="Microphone level"></span><span id="mic-text"></span></span>
       <span class="status" id="band" role="status" hidden></span>
+      <button class="quiet" id="band-mic" hidden>Use computer mic</button>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>
@@ -334,7 +335,7 @@
   </div>
 
   <footer>
-    <span>Estimates of how the student sounds, not facts about how they feel. Each step is also checked for mistakes. Audio and pictures are not saved.<span id="band-consent" hidden> From the Vexo band, only double taps are read. Its microphone stays off in a session.</span></span>
+    <span>Estimates of how the student sounds, not facts about how they feel. Each step is also checked for mistakes. Audio and pictures are not saved.<span id="band-consent" hidden> The Vexo band can be the microphone: its sound is used live and not saved, and its double taps are read.</span></span>
     <span id="running"></span>
   </footer>
   <audio id="bot-audio" autoplay></audio>

@@ -29,6 +29,9 @@ STATE_WAIT_SECONDS = 0.4
 BAND = (os.getenv("ILUMINA_BAND") or "").strip().lower()
 BAND_USB = BAND == "usb"
 BAND_NUMBER = int(BAND) if BAND.isdigit() else None
+# Whether the band is also the session's microphone, live. The dashboard can switch this
+# during a session. Whenever the band's sound is not arriving, the computer's is used.
+BAND_MIC = (os.getenv("ILUMINA_BAND_MIC") or "on").lower() not in ("off", "no", "false", "0")
 
 # Check each step the student gives for mistakes: a second Decision 1 call per turn,
 # beside the emotion call. Set ILUMINA_WORK_CHECK=off to run without it.

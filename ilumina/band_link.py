@@ -1,17 +1,23 @@
 """The student's Vexo band during a tutoring session.
 
 The band is on the wrist while the student works on paper, so it does two things a screen
-cannot: its light shows whose turn it is, and a double tap means "done talking". The band
-connects in the background and keeps trying, so a band that is not found, or drops out,
-never holds up or stops the tutor. Only taps are read. The band's microphone stays off:
-a session's sound still comes from the computer's microphone.
+cannot: a double tap means "done talking", and its light shows whose turn it is. It can
+also be the session's microphone: its sound then goes into the voice pipeline in place of
+the computer's, live. The band connects in the background and keeps trying, so a band that
+is not found, or drops out, never holds up or stops the tutor: the computer's microphone
+is used whenever the band's sound is not arriving.
+
+While the band's microphone is on, the band keeps its light solid blue by itself, so the
+light shows whose turn it is only when the computer's microphone is used.
 """
 
 import subprocess
 import sys
 import threading
+import time
 
 from loguru import logger
+from vexo_open import audio
 from vexo_open.sync import Band
 
 # The light for each stage of a turn, in the colours the dashboard uses for that stage.
@@ -22,6 +28,13 @@ LIGHTS = {
     "speaking": ("#7a4fe0", "breathe"),  # the tutor is speaking
 }
 _RETRY_SECONDS = 2  # a band can only be found for a minute after its double tap
+# The band's sound: 16 kHz, one channel, 16 bit. At most this much waits to be used, so the
+# tutor never hears the student late. With none for this long, the band is not the mic.
+_MAX_WAITING_BYTES = 32000 * 3 // 10
+# Bluetooth delivers the sound in uneven bursts, so this much is collected before any is
+# handed on (60 ms), and again after the band falls behind.
+_HEAD_START_BYTES = 32000 * 6 // 100
+_SILENT_AFTER_SECONDS = 1.0
 
 # macOS does not refuse Bluetooth to a program it has not allowed: it kills the program.
 # So the first scan is made by a throwaway process, and only if that one lives does the
@@ -48,9 +61,19 @@ class BandLink:
     """
 
     def __init__(
-        self, number: int | None, usb: bool = False, connect=Band.connect, safe=bluetooth_is_safe
+        self,
+        number: int | None,
+        usb: bool = False,
+        mic: bool = False,
+        connect=Band.connect,
+        safe=bluetooth_is_safe,
     ):
         self._number, self._usb, self._connect, self._safe = number, usb, connect, safe
+        self.mic = mic  # whether the band should be the session's microphone
+        self._sound = bytearray()  # the band's sound that the pipeline has not taken yet
+        self._sound_lock = threading.Lock()
+        self._collecting = True
+        self._heard_at = 0.0
         self._tell = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -80,6 +103,31 @@ class BandLink:
         """Ask for the light of this stage. Returns at once; the band's thread sets it."""
         self._stage = stage
         self._changed.set()
+
+    def use_mic(self, on: bool) -> None:
+        """Make the band the session's microphone, or go back to the computer's."""
+        self.mic = on
+        self._changed.set()
+
+    def sound(self, size: int) -> bytes | None:
+        """The next `size` bytes of the band's sound, or None when the band is not the
+        microphone right now (off, not connected, or its sound has stopped arriving)."""
+        if not self.mic or time.monotonic() - self._heard_at > _SILENT_AFTER_SECONDS:
+            return None
+        with self._sound_lock:
+            enough = max(size, _HEAD_START_BYTES) if self._collecting else size
+            self._collecting = len(self._sound) < enough
+            if self._collecting:
+                return bytes(size)  # a short gap is silence, not a wait
+            taken = bytes(self._sound[:size])
+            del self._sound[:size]
+        return taken
+
+    def _heard(self, pcm: bytes) -> None:
+        with self._sound_lock:
+            self._sound += pcm
+            del self._sound[: max(0, len(self._sound) - _MAX_WAITING_BYTES)]  # newest wins
+        self._heard_at = time.monotonic()
 
     def _say(self, stop: threading.Event, state: str, **more) -> None:
         if self._stop is not stop:
@@ -117,8 +165,10 @@ class BandLink:
                 logger.warning(f"Vexo band link dropped: {e}")
                 stop.wait(_RETRY_SECONDS)  # a band that fails every time must not spin
             finally:
+                self._heard_at = 0.0  # whatever is left is not live sound any more
                 try:
                     if band.connected:
+                        band.configure(audio=False)
                         band.led_off()
                     band.disconnect()
                 except Exception as e:  # noqa: BLE001
@@ -127,14 +177,21 @@ class BandLink:
 
     def _serve(self, band, stop: threading.Event) -> None:
         band.on("double-tap", lambda _event: self._send({"type": "band_tap"}))
+        decoder = audio.PcmDecoder()
+        band.on("audio", lambda packet: self._heard(decoder.feed(packet)))
         band.set_events(kinds=["double-tap"])
         band.configure(events=True)
-        self._say(stop, "connected", battery=band.get_battery().percent)
+        battery = band.get_battery().percent
         logger.info("Vexo band connected")
-        shown = None
+        mic_on, shown = None, None
         while not stop.is_set() and band.connected:
+            if self.mic != mic_on:
+                band.configure(audio=self.mic)
+                mic_on, shown = self.mic, None  # the band's microphone takes over its light
+                self._say(stop, "connected", battery=battery, mic=mic_on)
+                logger.info(f"Vexo band microphone {'on' if mic_on else 'off'}")
             stage = self._stage
-            if stage != shown and stage in LIGHTS:
+            if not mic_on and stage != shown and stage in LIGHTS:
                 colour, pattern = LIGHTS[stage]
                 band.set_led(colour, pattern=pattern)
                 shown = stage

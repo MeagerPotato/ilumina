@@ -1,13 +1,18 @@
 """The Vexo band in a tutoring session, against the kit's own pretend band."""
 
+import asyncio
 import time
 
+import numpy as np
+from pipecat.frames.frames import InputAudioRawFrame
+from pipecat.processors.frame_processor import FrameDirection
 from vexo_open.sync import Band, VexoError
 from vexo_open.transports.sim import SimTransport
 
 import lecture
 from ilumina import band_link, vexo_band
 from ilumina.band_link import LIGHTS, BandLink
+from ilumina.processors import BandMic
 
 
 def wait_for(check, seconds: float = 5.0) -> bool:
@@ -178,3 +183,73 @@ def test_a_band_that_fails_after_connecting_is_not_retried_in_a_spin(monkeypatch
     link.stop(link._tell)
     assert 1 <= len(tries) <= 4
     assert any(m.get("problem") == "busy" for m in told)
+
+
+def test_the_band_is_the_microphone_and_the_computer_takes_over_when_asked():
+    sim = SimTransport(42, auto_tap=False)
+    link = BandLink(
+        42,
+        mic=True,
+        connect=lambda number, **options: Band.connect(number, transport=sim),
+        safe=lambda: True,
+    )
+    told = []
+    link.start(told.append)
+    try:
+        assert wait_for(lambda: link.status.get("mic") is True)
+        assert link.sound(640) is None  # nothing heard yet: the computer's sound is used
+
+        tone = (np.sin(np.arange(16000) * 0.2) * 12000).astype(np.int16).tobytes()
+        packets = vexo_band.encode_pcm(tone)
+        sim.play_loudness(vexo_band.SPEECH_LEVEL, seconds=0.02 * len(packets), packets=packets)
+
+        def loud():
+            sound = link.sound(640)
+            return sound is not None and len(sound) == 640 and any(sound)
+
+        assert wait_for(loud)
+
+        link.use_mic(False)
+        assert wait_for(lambda: link.status.get("mic") is False)
+        assert link.sound(640) is None
+    finally:
+        link.stop(link._tell)
+    assert wait_for(lambda: link.status["state"] == "off")
+
+
+class FakeLink:
+    def __init__(self, sound):
+        self._sound = sound
+
+    def sound(self, size):
+        return self._sound and self._sound[:size]
+
+
+def through_band_mic(link, audio: bytes, rate: int = 16000) -> bytes:
+    out = []
+
+    async def keep(frame, direction):
+        out.append(frame)
+
+    async def run():
+        mic = BandMic(link)
+        mic.push_frame = keep
+        frame = InputAudioRawFrame(audio=audio, sample_rate=rate, num_channels=1)
+        await mic.process_frame(frame, FrameDirection.DOWNSTREAM)
+
+    asyncio.run(run())
+    return out[-1].audio
+
+
+def test_the_bands_sound_replaces_the_computers_but_never_a_paused_or_odd_one():
+    computer = (np.ones(320, dtype=np.int16) * 900).tobytes()
+    band = (np.ones(320, dtype=np.int16) * 5000).tobytes()
+    silent = bytes(640)
+
+    assert through_band_mic(FakeLink(band), computer) == band
+    # "Done talking" pauses the computer's microphone: the band must not keep the turn open.
+    assert through_band_mic(FakeLink(band), silent) == silent
+    # No sound from the band: the computer's microphone goes through untouched.
+    assert through_band_mic(FakeLink(None), computer) == computer
+    # A rate the band does not speak is left alone.
+    assert through_band_mic(FakeLink(band), computer, rate=48000) == computer

@@ -285,6 +285,8 @@ const STAGES = {
 const NO_ANSWER_AFTER_MS = 12000;
 // With the Vexo band connected, a double tap on the wrist does what the button does.
 let bandOn = false, hearingSince = 0;
+$("band-mic").onclick = () =>
+  fetch(`/band/mic/${$("band-mic").dataset.next}`, { method: "POST" }).catch(console.error);
 const howToSend = () => bandOn ? "double-tap your band or press Done talking" : "press Done talking";
 const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 let stageNow = null, heardText = "", userSpeaking = false;
@@ -400,8 +402,13 @@ function receive(msg) {
     const name = msg.number ? `Vexo band ${msg.number}` : "Vexo band";
     $("band").hidden = msg.state === "off";
     $("band-consent").hidden = false;
+    // The band can be the microphone. The button swaps it with the computer's, in case
+    // the wrist is too far from the mouth in a loud room.
+    $("band-mic").hidden = !bandOn;
+    $("band-mic").textContent = msg.mic ? "Use computer mic" : "Use band mic";
+    $("band-mic").dataset.next = msg.mic ? "off" : "on";
     $("band").textContent = bandOn
-      ? `${name} is connected${msg.battery == null ? "" : `, battery ${msg.battery}%`}`
+      ? `${name} is ${msg.mic ? "your microphone" : "connected, computer mic"}${msg.battery == null ? "" : `, battery ${msg.battery}%`}`
       : msg.state === "blocked" ? `${name}: Bluetooth is not allowed here, start the bot from Terminal`
       : (msg.number ? `${name}: double-tap it to connect` : `${name}: plug in its cable`)
         + (msg.problem && msg.problem !== "not-found-nearby" ? ` (${msg.problem})` : "");
@@ -610,7 +617,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("band").hidden = true; bandOn = false; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("band").hidden = true; $("band-mic").hidden = true; bandOn = false; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },

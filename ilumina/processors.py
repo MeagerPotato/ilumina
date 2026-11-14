@@ -300,6 +300,46 @@ class StudentStateInjector(FrameProcessor):
         )
 
 
+# A microphone the student paused on the dashboard sends samples no louder than this.
+_PAUSED_PEAK = 4
+_BAND_RATE = 16000  # the band's sound: 16 kHz, one channel
+
+
+class BandMic(FrameProcessor):
+    """Sits right after the transport input. While the student's Vexo band is the
+    microphone, each piece of the computer's sound is swapped for the same length of the
+    band's sound, so everything after it hears the band: speech to text, the meter, the
+    emotion reading.
+
+    The computer's sound stays in charge of time, and of two things more. When the band's
+    sound is not arriving, the computer's passes through untouched, so a band that drops
+    out costs nothing. And when the student pauses the microphone on the dashboard ("Done
+    talking"), the computer sends silence, and silence is what goes on.
+    """
+
+    def __init__(self, link, **kwargs):
+        super().__init__(**kwargs)
+        self._link = link
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if (
+            isinstance(frame, InputAudioRawFrame)
+            and frame.audio
+            and frame.sample_rate == _BAND_RATE
+            and frame.num_channels == 1
+        ):
+            try:
+                samples = np.frombuffer(frame.audio, dtype=np.int16)
+                if int(np.abs(samples.astype(np.int32)).max()) > _PAUSED_PEAK:
+                    sound = self._link.sound(len(frame.audio))
+                    if sound is not None:
+                        frame.audio = sound
+            except Exception as e:  # noqa: BLE001 - the computer's sound goes on instead
+                logger.debug(f"Band sound not used for this piece: {e}")
+        await self.push_frame(frame, direction)
+
+
 class BandLight(FrameProcessor):
     """Sits right after the user aggregator and shows the stage of the turn on the
     student's Vexo band: your turn, hearing you, heard you, the tutor is speaking.
