@@ -1,20 +1,25 @@
-"""Pipecat processors: camera view and state note into the tutor, teaching move out."""
+"""Pipecat processors: voice evidence, camera view and state note in, teaching move out."""
 
 import asyncio
 import time
 
 from loguru import logger
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     Frame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
+    ProposedUserStartedSpeakingFrame,
+    TranscriptionFrame,
     UserImageRawFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
+from ilumina.evidence import voice_evidence
 from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
 
@@ -93,6 +98,52 @@ class CameraView(FrameProcessor):
         )
         self._shown = context.get_messages()[-1]
         return True
+
+
+class VoiceEvidence(FrameProcessor):
+    """Sits right after speech to text and measures how each student turn was spoken.
+
+    Deepgram Flux sends word timings with every finished turn. From them, and from how
+    long the student waited before answering, this works out the turn's measured
+    evidence, reports it to the dashboard, and keeps it for the emotion scorer.
+    Every frame passes through untouched, and a failure here never stops the turn.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._tutor_stopped_at: float | None = None  # None while the tutor is speaking
+        self._waited: float | None = None
+        self._latest: dict | None = None
+
+    def take(self) -> dict | None:
+        """The newest turn's evidence, once. A later turn never gets an old one."""
+        latest, self._latest = self._latest, None
+        return latest
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, BotStartedSpeakingFrame):
+            self._tutor_stopped_at = None
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._tutor_stopped_at = time.monotonic()
+        elif isinstance(frame, ProposedUserStartedSpeakingFrame):
+            # No wait is recorded when the student cut the tutor off.
+            # One wait per tutor reply: a second student turn in a row has none either.
+            stopped, self._tutor_stopped_at = self._tutor_stopped_at, None
+            self._waited = None if stopped is None else time.monotonic() - stopped
+        elif isinstance(frame, TranscriptionFrame):
+            try:
+                self._latest = voice_evidence(frame.result, self._waited)
+            except Exception as e:  # noqa: BLE001 - evidence is a bonus, the turn goes on
+                logger.warning(f"Voice evidence not measured for this turn: {e}")
+                self._latest = None
+            self._waited = None
+            if self._latest:
+                logger.info(f"Voice evidence: {self._latest}")  # numbers only, never the words
+                await self.push_frame(
+                    RTVIServerMessageFrame(data={"type": "voice_evidence", **self._latest})
+                )
+        await self.push_frame(frame, direction)
 
 
 class StudentStateInjector(FrameProcessor):

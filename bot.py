@@ -3,6 +3,8 @@
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
+Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per turn
+              -> shown on the dashboard and given to Decision 1 beside the audio
 Camera path:  the newest camera frame is shown to the tutor with each student turn
               (the browser's camera, or the head-worn GoPro with ILUMINA_CAMERA=gopro)
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
@@ -53,7 +55,13 @@ from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config, memory
 from ilumina.emotion import score_turn
-from ilumina.processors import CameraView, StudentStateInjector, TeachingMoveTagger
+from ilumina.evidence import describe_evidence
+from ilumina.processors import (
+    CameraView,
+    StudentStateInjector,
+    TeachingMoveTagger,
+    VoiceEvidence,
+)
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
 
@@ -114,6 +122,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     # Emotion path
     decisions_client = genai.Client(api_key=config.GOOGLE_API_KEY)
     tracker = StateTracker()
+    voice_evidence = VoiceEvidence()
     state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
     hard_moments = []  # turns where the student sounded confused or frustrated
@@ -122,6 +131,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         [
             transport.input(),
             stt,
+            voice_evidence,
             user_aggregator,
             CameraView(headcam=headcam),
             state_injector,
@@ -147,9 +157,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         """Score the turn that just ended. A failure here never stops the tutor."""
         try:
             wav = pcm_to_wav(audio, sample_rate, num_channels)
+            evidence = voice_evidence.take()
             started = time.monotonic()
             readings = await score_turn(
-                decisions_client, config.DECISION_MODEL, wav, recent_text(context)
+                decisions_client,
+                config.DECISION_MODEL,
+                wav,
+                recent_text(context),
+                describe_evidence(evidence) if evidence else "",
             )
             scored_ms = round((time.monotonic() - started) * 1000)
         except Exception as e:  # noqa: BLE001 - any emotion failure must not stop the voice loop

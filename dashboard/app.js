@@ -41,6 +41,21 @@ function renderNow(snapshot) {
   }).join("");
 }
 
+// Deepgram's word timings for the turn, as measured. A wait is only there when one was measured.
+function renderEvidence(e) {
+  const seconds = (v) => `${v.toFixed(1)} s`;
+  const cells = [
+    e.words_per_minute == null
+      ? [e.words, e.words === 1 ? "word, too few for a pace" : "words, too few for a pace"]
+      : [e.words_per_minute, "words a minute"],
+    [seconds(e.longest_pause), "longest pause"],
+    [e.fillers, e.fillers === 1 ? "um or uh" : "ums and uhs"],
+  ];
+  if (e.waited != null) cells.push([seconds(e.waited), "before you answered"]);
+  $("measured").hidden = false;
+  $("evidence").innerHTML = cells.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+}
+
 function renderTrace() {
   const W = 1100, rowH = 84, padL = 110, padR = 20, top = 8;
   const n = Math.max(history.length, 8);
@@ -85,6 +100,8 @@ function receive(msg) {
       $("scored").hidden = false;
       $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
     }
+  } else if (msg?.type === "voice_evidence") {
+    renderEvidence(msg);
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
     $("move-name").textContent = MOVE_TEXT[msg.move] ?? msg.move;

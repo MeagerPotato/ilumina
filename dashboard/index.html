@@ -81,6 +81,12 @@
   .camera select:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   .seen { color: var(--muted); font-size: 15px; }
   .scored { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .measured { margin: 18px 0 0; padding-top: 14px; border-top: 1.5px solid var(--ink); }
+  .measured h3 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  .measured dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px 18px; margin: 0; }
+  .measured dl div { display: flex; flex-direction: column-reverse; justify-content: flex-end; } /* number on top, tops level */
+  .measured dt { color: var(--muted); font-size: 14px; }
+  .measured dd { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
   .running { color: var(--muted); font-size: 15px; margin: 20px 0 0; max-width: 78ch; }
 
   .trace { margin-top: 20px; }
@@ -115,6 +121,10 @@
         <span><i class="k-est"></i>smoothed estimate</span>
         <span><i class="k-read"></i>this turn's reading</span>
         <span><i class="k-band"></i>wider means less sure</span>
+      </div>
+      <div class="measured" id="measured" hidden>
+        <h3>Measured by Deepgram on your last turn</h3>
+        <dl id="evidence"></dl>
       </div>
       <p class="scored" id="scored" hidden></p>
     </section>
