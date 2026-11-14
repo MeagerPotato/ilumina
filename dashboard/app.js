@@ -1,6 +1,23 @@
 // Ilumina dashboard. Everything drawn here comes from messages the bot sends.
 // Nothing is simulated: with no messages, the page stays empty.
-import { PipecatClient, SmallWebRTCTransport } from "./vendor/pipecat.js";
+import { PipecatClient, SmallWebRTCTransport, WavMediaManager, WebSocketTransport } from "./vendor/pipecat.js";
+
+// Two ways to reach the bot. Locally (uv run bot.py, page at /dashboard/) the browser
+// talks to the bot over WebRTC. Hosted (page at /app/ behind the landing page) the bot
+// runs in a Vercel Function and the browser reaches it over a WebSocket, voice only.
+// That function has a time limit, so the bot says how long a session may last.
+const HOSTED = location.pathname.startsWith("/app");
+let sessionTimer, timeUp = false;
+function startSessionClock(seconds) {
+  clearInterval(sessionTimer);
+  if (!seconds) return;
+  const ends = Date.now() + seconds * 1000;
+  sessionTimer = setInterval(() => {
+    const left = Math.round((ends - Date.now()) / 1000);
+    if (left <= 0) { clearInterval(sessionTimer); timeUp = true; client?.disconnect(); return; }
+    if (left <= 60) $("status").textContent = `Session ends in ${left}s`;
+  }, 1000);
+}
 
 const DIMS = ["confusion", "frustration", "confidence", "engagement"];
 const STATUS_TEXT = { steady: "steady", blip: "blip, ignored", trend: "changed" };
@@ -392,7 +409,8 @@ function receive(msg) {
     $("running").textContent = `Pipecat · Deepgram Flux + Aura-2 · ${msg.tutor_model} teaches · ${msg.emotion_model} reads`;
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "head-worn GoPro";
-  } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {
+    startSessionClock(msg.limit_seconds);
+  } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer || hostedCam)) {
     $("cam-seen").textContent = msg.seen
       ? "Ilumina got a picture with your last turn."
       : "Ilumina did not get a picture with your last turn.";
@@ -420,6 +438,50 @@ function resetCamera(message) {
   showCamera(null);
   $("cam-toggle").disabled = !client;
   $("cam-seen").textContent = message;
+}
+
+// Hosted camera. The WebSocket to the bot carries no video, so the page shows the
+// camera itself and sends the tutor one JPEG still a second as a message.
+const MAX_STILL_CHARS = 60000; // the client refuses messages over 64 KiB
+let hostedCam, stillTimer;
+const stillCanvas = document.createElement("canvas");
+function sendStill() {
+  const video = $("cam-video");
+  if (!client || !hostedCam || !video.videoWidth) return;
+  for (const [width, quality] of [[768, 0.6], [640, 0.5], [480, 0.5]]) {
+    stillCanvas.width = width;
+    stillCanvas.height = Math.round(width * video.videoHeight / video.videoWidth);
+    stillCanvas.getContext("2d").drawImage(video, 0, 0, stillCanvas.width, stillCanvas.height);
+    const jpeg = stillCanvas.toDataURL("image/jpeg", quality).split(",")[1];
+    if (jpeg.length <= MAX_STILL_CHARS) {
+      try { client.sendClientMessage("camera_frame", { jpeg }); } catch (e) { console.error(e); }
+      return;
+    }
+  }
+}
+async function setHostedCam(on, deviceId) {
+  clearInterval(stillTimer);
+  hostedCam?.getTracks().forEach((t) => t.stop());
+  hostedCam = undefined;
+  if (!on) return resetCamera("Camera is off. Ilumina hears you but sees nothing.");
+  $("cam-toggle").textContent = "Turn camera off";
+  $("cam-seen").textContent = "Starting the camera. Allow it if the browser asks.";
+  try {
+    hostedCam = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 1280 } } });
+  } catch (e) {
+    console.error(e);
+    return resetCamera(e?.name === "NotAllowedError"
+      ? "The browser blocked the camera. Allow it in the address bar, then try again."
+      : "The camera could not be turned on. Ilumina carries on by voice.");
+  }
+  if (!client) { hostedCam.getTracks().forEach((t) => t.stop()); hostedCam = undefined; return; }
+  showCamera(hostedCam.getVideoTracks()[0]);
+  $("cam-seen").textContent = "Camera is on. Ilumina gets a picture when you next speak.";
+  stillTimer = setInterval(sendStill, 1000);
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  listCameras(cams);
+  const current = hostedCam.getVideoTracks()[0]?.getSettings().deviceId;
+  if (current) $("cam-pick").value = current;
 }
 
 // Head camera (GoPro). The bot says in session_info when it is the camera in use.
@@ -460,6 +522,7 @@ function setHeadcam(on) {
 function toggleCamera() {
   if (!client) return;
   if (headcam) return setHeadcam(!headcamTimer);
+  if (HOSTED) return setHostedCam(!hostedCam);
   const on = !client.isCamEnabled;
   client.enableCam(on);
   if (on) {
@@ -480,15 +543,29 @@ async function toggle() {
     await client.disconnect();
     return;
   }
+  const passcode = $("passcode").value.trim();
+  if (HOSTED && !passcode) {
+    $("status").textContent = "Enter the passcode first";
+    $("passcode").focus();
+    return;
+  }
   button.disabled = true;
   $("status").textContent = "Connecting";
   client = new PipecatClient({
-    transport: new SmallWebRTCTransport(),
+    transport: HOSTED
+      // By default the browser side uses Daily's audio handling (echo cancellation),
+      // loaded from Daily's CDN. ?media=wav uses plain Web Audio instead, for checks offline.
+      ? new WebSocketTransport({
+        recorderSampleRate: 16000,
+        playerSampleRate: 24000,
+        ...(new URLSearchParams(location.search).get("media") === "wav" ? { mediaManager: new WavMediaManager(512, 16000) } : {}),
+      })
+      : new SmallWebRTCTransport(),
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onConnected: () => { $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
+      onDisconnected: () => { $("passcode").hidden = !HOSTED; clearTimeout(micTimer); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -535,19 +612,35 @@ async function toggle() {
     },
   });
   try {
-    await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
+    if (HOSTED) {
+      // Check the passcode first: a refused WebSocket gives the browser no reason.
+      const check = await fetch("/api/bot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passcode }) });
+      if (!check.ok) throw Object.assign(new Error("passcode"), { status: check.status });
+      try { sessionStorage.setItem("ilumina-passcode", passcode); } catch {}
+      const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/bot?passcode=${encodeURIComponent(passcode)}`;
+      await client.connect({ wsUrl });
+    } else {
+      await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
+    }
   } catch (e) {
     console.error(e);
-    $("status").textContent = "Could not connect. Is the bot running?";
+    $("status").textContent = HOSTED
+      ? (e?.status === 401 ? "Wrong passcode" : e?.status === 503 ? "The tutor is not set up yet" : "Could not start the tutor. Try again in a minute.")
+      : "Could not connect. Is the bot running?";
     button.disabled = false;
     client = undefined;
   }
 }
 
+if (HOSTED) {
+  $("passcode").hidden = false;
+  try { $("passcode").value = sessionStorage.getItem("ilumina-passcode") ?? ""; } catch {}
+  $("passcode").addEventListener("keydown", (e) => { if (e.key === "Enter" && !client) toggle(); });
+}
 $("connect").addEventListener("click", toggle);
 $("done").addEventListener("click", doneTalking);
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
-$("cam-pick").addEventListener("change", (e) => client?.updateCam(e.target.value));
+$("cam-pick").addEventListener("change", (e) => HOSTED ? setHostedCam(true, e.target.value) : client?.updateCam(e.target.value));
 window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, addLine }; // lets checks feed recorded messages and a camera track

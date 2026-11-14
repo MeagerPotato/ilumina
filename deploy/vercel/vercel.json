@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "sh vercel-install.sh",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/bot.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{node_modules/**,dist/**,public/**,src/**,.src/**,*.html,*.json,*.sh,vite.config.js}"
+    }
+  },
+  "redirects": [{ "source": "/app", "destination": "/app/" }]
+}

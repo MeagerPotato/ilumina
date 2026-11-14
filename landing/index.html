@@ -43,6 +43,31 @@
         font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
         color: #7a7a7a;
       }
+      .try {
+        position: fixed;
+        left: 50%;
+        bottom: calc(24px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        z-index: 2;
+        padding: 10px 18px;
+        background: #1f2230;
+        color: #ffffff;
+        border: 2px solid #1f2230;
+        box-shadow: 4px 4px 0 #ffd84d;
+        font: 700 14px/1 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .try:hover {
+        box-shadow: 2px 2px 0 #ffd84d;
+        transform: translate(calc(-50% + 2px), 2px);
+      }
+      .try:focus-visible {
+        outline: 2px solid #ffd84d;
+        outline-offset: 3px;
+      }
       .sr-only {
         position: absolute;
         width: 1px;
@@ -63,6 +88,7 @@
       aria-label="Animated pixel-art scene. A student at a desk asks a philosopher, sitting in the pose of Rodin's Thinker, for help with calculus homework. He answers only in riddles. The student snaps, pulls out an absurdly large cartoon gun with knives and missile launchers, and chases him off with a barrage. Then the student puts on a small head-worn tutor, which notices the frustration, slows down, and walks them through the chain rule until they get it."
     ></canvas>
     <canvas id="overlay" aria-hidden="true"></canvas>
+    <a class="try" href="/app/">Try Ilumina</a>
     <p class="sr-only">An emotionally aware voice tutor that listens to how a student sounds, not only what they say.</p>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -32,6 +32,8 @@
   }
   button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--engagement); outline-offset: 3px; }
   button[disabled] { opacity: .5; cursor: default; }
+  #passcode { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 2px solid var(--ink); padding: 6px 8px; width: 9em; }
+  #passcode[hidden] { display: none; }
   button.quiet { background: var(--panel); color: var(--ink); border: 2px solid var(--ink); padding: 6px 12px; box-shadow: none; }
 
   /* Header: wordmark, where the conversation is, the mic, the session button. */
@@ -208,6 +210,7 @@
     <div class="session">
       <span class="mic" id="mic" hidden><span class="level" id="mic-level" role="img" aria-label="Microphone level"></span><span id="mic-text"></span></span>
       <span class="status" id="status" role="status">Not connected</span>
+      <input id="passcode" type="password" placeholder="Passcode" aria-label="Passcode" autocomplete="current-password" hidden>
       <button id="connect">Start session</button>
     </div>
   </header>
