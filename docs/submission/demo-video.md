@@ -2,7 +2,9 @@
 
 Judges pick finalists from this video, so it has to carry the whole pitch with nobody in the room to explain it. Show the real app working, say the problem in the first 5 seconds, and name the sponsor tech out loud. Keep it to 1 minute.
 
-Record on the Mac with QuickTime: File, New Screen Recording, Options, Microphone: MacBook microphone. Use earbuds so Ilumina doesn't hear itself, but then the video won't hear Ilumina either, so also do this: System Settings, Sound, Output: MacBook speakers, and keep your face away from the mic. If Ilumina starts hearing itself, switch back to earbuds and record Ilumina's voice with the screen recording's "system audio" option if your QuickTime has it, or add captions instead.
+Judges need to hear Ilumina's voice, and QuickTime's screen recording only records the microphone, not the Mac's sound. So play Ilumina through the MacBook speakers, not earbuds, and the mic picks up both of you. Chrome's echo cancellation usually stops Ilumina hearing itself. Do a 20 second test first: if Ilumina interrupts itself or answers its own words, switch to filming the screen with your iPhone instead, with the Mac on speakers and the iPhone's mic recording the room.
+
+To record: QuickTime, File, New Screen Recording, Options, Microphone: MacBook microphone, then Record.
 
 Features marked **(PR 17–19)** only appear once those pull requests are merged. If they aren't merged when you record, skip that shot and give its seconds to shot 3.
 
