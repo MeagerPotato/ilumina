@@ -49,7 +49,7 @@ from pipecat.transports.base_transport import (
 )
 from pipecat.workers.runner import WorkerRunner
 
-from ilumina import config
+from ilumina import config, memory
 from ilumina.emotion import score_turn
 from ilumina.processors import CameraView, StudentStateInjector, TeachingMoveTagger
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
@@ -71,6 +71,12 @@ def recent_text(context: LLMContext, limit: int = 6) -> str:
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
     logger.info(f"Starting Ilumina (tutor model: {config.GOOGLE_MODEL})")
 
+    try:
+        memory_note = memory.tutor_note()
+    except Exception as e:  # noqa: BLE001 - memory is a bonus; the tutor must still start
+        logger.warning(f"Could not read memory, starting without it: {e}")
+        memory_note = ""
+
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
         api_key=config.DEEPGRAM_API_KEY,
@@ -80,7 +86,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         api_key=config.GOOGLE_API_KEY,
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
-            system_instruction=TUTOR_SYSTEM_PROMPT,
+            # Lectures the student saved from the Vexo band, and past sessions, if any.
+            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note,
             # A spoken reply has to start fast. "low" is valid on every Gemini 4
             # model; left unset, Hydrogen thinks at "high" before it speaks.
             thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
@@ -98,6 +105,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     tracker = StateTracker()
     state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
+    hard_moments = []  # turns where the student sounded confused or frustrated
 
     pipeline = Pipeline(
         [
@@ -142,6 +150,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         if not readings:
             return
         snapshot = tracker.update(readings)
+        struggling = [
+            name
+            for name in ("confusion", "frustration")
+            if snapshot["dimensions"].get(name, {}).get("level") == "high"
+        ]
+        if struggling:
+            hard_moments.append(
+                {"state": " and ".join(struggling), "said": recent_text(context, 2)}
+            )
         state_injector.set_snapshot(snapshot)
         logger.info(f"Student state: {snapshot}")
         await worker.queue_frame(
@@ -176,7 +193,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
-        await runner.cancel()
+        try:
+            if config.SAVE_MEMORY and hard_moments:
+                path = memory.save("sessions", {"hard_moments": hard_moments})
+                logger.info(f"Saved this session's hard moments to {path}")
+        except Exception as e:  # noqa: BLE001 - never block shutting the session down
+            logger.warning(f"Could not save this session to memory: {e}")
+        finally:
+            await runner.cancel()
 
     await runner.run()
 
