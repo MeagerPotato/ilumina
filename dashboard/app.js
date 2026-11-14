@@ -102,12 +102,13 @@ function renderMemory(m) {
     ? `<p class="class"><b>Earlier sessions</b><span>${Number(m.hard_moments)} ${m.hard_moments === 1 ? "moment" : "moments"} where you sounded stuck</span></p>`
     : "";
   if (!classes && !moments && !m.plan) {
-    $("memory").innerHTML = `<p class="empty">Nothing saved yet. Record a class and Ilumina opens the next session from it.</p>`;
+    $("memory").innerHTML = `<p class="empty">Nothing saved yet. Save a class with lecture.py and Ilumina can review it with you.</p>`;
     return;
   }
   $("memory").innerHTML = classes + moments
     + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
-    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.</p>`;
+    + `<p class="kept">Saved on this computer. Ilumina is told about the classes and where you got stuck, not the plan.`
+    + (m.reviewing ? ` For this review it also has the transcript of ${esc(m.reviewing)}.` : "") + `</p>`;
 }
 
 function renderTrace() {
@@ -280,6 +281,15 @@ function receive(msg) {
     $("running").textContent =
       `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
       `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
+    // The bot says which kind of session it really started.
+    if (msg.mode) showMode(msg.mode);
+    savesWithoutAsking = Boolean(msg.saves_without_asking);
+    if (msg.no_class_to_review || (msg.mode && msg.mode !== askedMode)) {
+      $("problem").hidden = false;
+      $("problem").textContent = msg.no_class_to_review
+        ? "Ilumina found no saved class to review, so this is a homework session. Save one with lecture.py, then start a lecture review."
+        : `Ilumina started a ${msg.mode === "review" ? "lecture review" : "homework"} session, not the kind you picked. End it and start again.`;
+    }
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "Wear the GoPro and look at your page so Ilumina can read the problem and your working.";
   } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {
@@ -364,37 +374,69 @@ function toggleCamera() {
 let client;
 const shownSegments = new Set();
 
-// Nothing from a session is kept unless the student says yes when it ends.
-let hardMoments = 0, endNote = "";
+// The two kinds of session. The choice is sent to the bot when the session starts.
+const MODE_HINT = {
+  homework: "Homework: bring a problem. Ilumina reads your page and helps you through it.",
+  review: "Lecture review: go back over your last class, one idea at a time.",
+};
+let askedMode = "homework";
+const pickedMode = () => document.querySelector('input[name="mode"]:checked').value;
+function showMode(mode) {
+  document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+  document.body.dataset.mode = mode;
+  $("mode-hint").textContent = MODE_HINT[mode];
+}
+
+// Nothing from a session is kept unless the student says yes when it ends. (With
+// ILUMINA_MEMORY=on the bot saves without asking, and says so in session_info.)
+let hardMoments = 0, endNote = "", savesWithoutAsking = false, ending = false, askShownAt = 0;
+const moments = (n) => `${n} hard ${n === 1 ? "moment" : "moments"}`;
+// A held Enter key or a double click must not answer a question nobody has read yet.
+const tooSoon = () => Date.now() - askShownAt < 500;
+
 async function endSession(save) {
+  if (ending) return;
+  ending = true;
+  const session = client;
   $("ask").hidden = true;
+  $("connect").disabled = true;
   if (save) {
     try {
-      const { saved } = await client.sendClientRequest("save_session", {}, 3000);
-      endNote = saved ? ` Saved ${saved} hard ${saved === 1 ? "moment" : "moments"} for next time.` : " Nothing was saved.";
+      const { saved } = await session.sendClientRequest("save_session", {}, 3000);
+      endNote = saved ? ` Saved ${moments(saved)} for next time.` : " Nothing was saved.";
     } catch (e) {
       console.error(e);
-      endNote = " Saving failed, so nothing was kept.";
+      endNote = " The save could not be confirmed.";
     }
+  } else if (savesWithoutAsking && hardMoments) {
+    endNote = ` ${moments(hardMoments)} saved, because ILUMINA_MEMORY is on.`;
   }
+  if (client !== session) return; // that session already ended while the save was on its way
   resumeMic(); // never leave the microphone track switched off for the next session
-  await client?.disconnect();
+  await session.disconnect();
 }
 
 async function toggle() {
   const button = $("connect");
   if (client) {
-    if (hardMoments && $("ask").hidden) {
+    if (!$("ask").hidden) {
+      if (!tooSoon()) await endSession(false);
+      return;
+    }
+    if (hardMoments && !savesWithoutAsking) {
       $("ask-text").textContent = `You sounded stuck ${hardMoments === 1 ? "once" : `${hardMoments} times`} in this session. ` +
         "Ilumina can keep what was said then, on this computer only, and start there next time.";
       $("ask").hidden = false;
-      $("ask-save").focus();
+      askShownAt = Date.now();
+      $("ask-skip").focus(); // a stray Enter then saves nothing
       return;
     }
     await endSession(false);
     return;
   }
   button.disabled = true;
+  $("mode").disabled = true;
+  askedMode = pickedMode();
   $("status").textContent = "Connecting";
   client = new PipecatClient({
     transport: new SmallWebRTCTransport(),
@@ -402,7 +444,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("ask").hidden = true; hardMoments = 0; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("status").textContent = endNote ? "Session ended." + endNote : "Not connected"; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -449,19 +491,25 @@ async function toggle() {
     },
   });
   try {
+    // The bot is told the kind of session first, then the session starts.
+    const told = await fetch(`/mode/${askedMode}`, { method: "POST" });
+    if (!told.ok) throw new Error(`The bot refused the session mode (${told.status}).`);
     await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
   } catch (e) {
     console.error(e);
     $("status").textContent = "Could not connect. Is the bot running?";
     button.disabled = false;
+    $("mode").disabled = false;
     client = undefined;
   }
 }
 
 $("connect").addEventListener("click", toggle);
+$("mode").addEventListener("change", () => showMode(pickedMode()));
+showMode(pickedMode());
 $("done").addEventListener("click", doneTalking);
-$("ask-save").addEventListener("click", () => endSession(true));
-$("ask-skip").addEventListener("click", () => endSession(false));
+$("ask-save").addEventListener("click", () => tooSoon() || endSession(true));
+$("ask-skip").addEventListener("click", () => tooSoon() || endSession(false));
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });

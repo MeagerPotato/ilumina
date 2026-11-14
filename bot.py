@@ -25,6 +25,9 @@ import certifi
 # Python at certifi's bundle unless the user already set one. Must run before
 # any connection is opened.
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+# Pipecat's debug log would otherwise carry every word of the conversation. The student's
+# words stay out of the log file. Must be set before the first reply is made.
+os.environ.setdefault("PIPECAT_LOG_LLM_CONTEXT", "off")
 
 from fastapi.staticfiles import StaticFiles
 from google import genai
@@ -63,8 +66,32 @@ from ilumina.processors import (
     TeachingMoveTagger,
     VoiceEvidence,
 )
-from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
+from ilumina.prompts import (
+    GREETING_NOTE,
+    HOMEWORK_NOTE,
+    TUTOR_SYSTEM_PROMPT,
+    review_greeting,
+    review_note,
+)
 from ilumina.state import StateTracker, describe
+
+
+def _keep_words_out_of_the_log(record) -> None:
+    """Pipecat's debug log prints the tutor's whole instructions (with the student's class
+    notes, and in a review the transcript) and every sentence it speaks. Keep the line,
+    drop the words."""
+    message = record["message"]
+    if record["function"] == "_compose_system_instruction":
+        record["message"] = message.split(":", 1)[0] + ": instructions composed (text not logged)"
+    elif "Generating TTS [" in message:
+        record["message"] = message.split("[", 1)[0] + "[text not logged]"
+
+
+logger.configure(patcher=_keep_words_out_of_the_log)
+
+# The kind of session the dashboard asked for, set just before it connects. One student
+# uses this bot at a time, so the next session to start is theirs.
+picked = {"mode": "homework"}
 
 headcam = None
 if config.CAMERA == "gopro":
@@ -102,6 +129,18 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.warning(f"Could not read memory for the dashboard: {e}")
         remembered = None
 
+    # The student picks homework or lecture review on the dashboard. A review needs a
+    # saved class; without one the session is a homework session and says so.
+    asked_for_review = picked["mode"] == "review"
+    review = None
+    if asked_for_review:
+        try:
+            review = memory.review_material()
+        except Exception as e:  # noqa: BLE001 - a session still starts, as homework
+            logger.warning(f"Could not read the class to review: {e}")
+    mode_note = review_note(review) if review else HOMEWORK_NOTE
+    logger.info(f"Session mode: {'review' if review else 'homework'}")
+
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
         api_key=config.DEEPGRAM_API_KEY,
@@ -112,7 +151,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
             # Lectures the student saved from the Vexo band, and past sessions, if any.
-            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note,
+            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note + mode_note,
             # A spoken reply has to start fast. "low" is valid on every Gemini 4
             # model; left unset, Hydrogen thinks at "high" before it speaks.
             thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
@@ -135,13 +174,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     kept = False
 
     def keep_hard_moments() -> int:
-        """Save this session's hard moments to memory, once. Returns how many were saved."""
+        """Save this session's hard moments to memory, once. Returns how many are saved."""
         nonlocal kept
-        if kept or not hard_moments:
+        if not hard_moments:
             return 0
-        path = memory.save("sessions", {"hard_moments": hard_moments})
-        kept = True
-        logger.info(f"Saved {len(hard_moments)} hard moments of this session to {path}")
+        if not kept:
+            path = memory.save("sessions", {"hard_moments": hard_moments})
+            kept = True
+            logger.info(f"Saved {len(hard_moments)} hard moments of this session to {path}")
         return len(hard_moments)
 
     pipeline = Pipeline(
@@ -231,17 +271,22 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
                     "camera": config.CAMERA,
+                    "mode": "review" if review else "homework",
+                    "no_class_to_review": asked_for_review and not review,
+                    # With the setting on, hard moments are saved without a question.
+                    "saves_without_asking": config.SAVE_MEMORY,
                 }
             )
         )
         if remembered:
             # What the tutor was told it remembers, so the student can see it too.
-            await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
-        greeting = GREETING_NOTE
-        if memory_note and remembered and remembered["lectures"]:
-            # Open from the newest class, by name, so the tutor does not pick an older one.
-            newest = remembered["lectures"][-1]["title"]
-            greeting = GREETING_WITH_MEMORY_NOTE.format(title=newest)
+            reviewing = (review["title"] or "your most recent class") if review else ""
+            await worker.queue_frame(
+                RTVIServerMessageFrame(
+                    data={"type": "memory", "reviewing": reviewing, **remembered}
+                )
+            )
+        greeting = review_greeting(review) if review else GREETING_NOTE
         context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
 
@@ -300,14 +345,23 @@ if __name__ == "__main__":
         name="dashboard",
     )
 
-    if headcam:
-        from fastapi import HTTPException, Request, Response
+    from fastapi import HTTPException, Request, Response
 
-        def only_the_dashboard(request: Request):
-            # Other websites open in the same browser must not switch or see the camera.
-            same_site = request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
-            if not same_site or request.url.hostname not in ("localhost", "127.0.0.1"):
-                raise HTTPException(status_code=403)
+    def only_the_dashboard(request: Request):
+        # Other websites open in the same browser must not switch or see the camera,
+        # or choose the kind of session.
+        same_site = request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
+        if not same_site or request.url.hostname not in ("localhost", "127.0.0.1"):
+            raise HTTPException(status_code=403)
+
+    @app.post("/mode/{name}")
+    def pick_mode(name: str, request: Request):
+        """The dashboard says which kind of session it is about to start."""
+        only_the_dashboard(request)
+        picked["mode"] = "review" if name == "review" else "homework"
+        return picked
+
+    if headcam:
 
         @app.post("/headcam/{state}")
         def switch_headcam(state: str, request: Request):

@@ -54,6 +54,16 @@
   .stage[data-stage="speaking"] { border-left-color: var(--confusion); }
   .stage.ask { position: static; border-left-color: var(--ink); }
   button.quiet { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); padding: 10.5px 20.5px; }
+  /* Homework or lecture review, picked before the session starts. */
+  .mode { display: flex; border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px; margin: 0; background: var(--panel); }
+  .mode label { padding: 8px 16px; border-radius: 999px; font-weight: 600; font-size: 15px; cursor: pointer; white-space: nowrap; }
+  .mode input { position: absolute; opacity: 0; pointer-events: none; }
+  .mode label:has(input:checked) { background: var(--ink); color: #fff; }
+  .mode label:has(input:focus-visible) { outline: 3px solid var(--engagement); outline-offset: 3px; }
+  .mode:disabled label { cursor: default; }
+  .mode:disabled label:not(:has(input:checked)) { opacity: .45; }
+  .mode-hint { margin: 14px 0 0; font-size: 20px; max-width: 60ch; }
+  body[data-mode="review"] .memory { order: -1; } /* the class being reviewed comes first */
   .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
@@ -141,19 +151,24 @@
     <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
     <div class="session">
+      <fieldset class="mode" id="mode" aria-label="Kind of session" aria-describedby="mode-hint">
+        <label><input type="radio" name="mode" value="homework" checked>Homework</label>
+        <label><input type="radio" name="mode" value="review">Lecture review</label>
+      </fieldset>
       <span class="mic" id="mic" hidden><span class="level" role="img" aria-label="Microphone level"><i id="mic-fill"></i></span><span id="mic-text"></span></span>
       <span class="status" id="status" role="status">Not connected</span>
       <button id="connect">Start session</button>
     </div>
   </header>
+  <p class="mode-hint" id="mode-hint"></p>
   <p class="problem" id="problem" role="alert" hidden></p>
   <div class="stage" id="stage" hidden>
     <p><b id="stage-name"></b><span id="stage-hint"></span></p>
     <button id="done" aria-disabled="true">Done talking</button>
     <span class="sr" id="stage-say" role="status"></span>
   </div>
-  <div class="stage ask" id="ask" hidden>
-    <p><b>Save what was hard?</b><span id="ask-text"></span></p>
+  <div class="stage ask" id="ask" role="group" aria-labelledby="ask-title" aria-describedby="ask-text" hidden>
+    <p><b id="ask-title">Save what was hard?</b><span id="ask-text"></span></p>
     <button id="ask-save">Save and end</button>
     <button id="ask-skip" class="quiet">End without saving</button>
   </div>
