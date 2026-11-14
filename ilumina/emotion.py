@@ -1,7 +1,8 @@
 """Scores one student turn with Gemini Decision 1 (the Decisions API).
 
-One call per turn. The model hears the audio clip directly, so it can use tone
-and pacing as well as the words.
+One call per turn. The model hears the audio clip directly and reads the last few
+lines of the conversation, so it can weigh tone and pacing together with the words
+and what they were an answer to.
 """
 
 import base64
@@ -14,8 +15,18 @@ from ilumina.state import Reading, level_of
 _API_VERSION = "v1beta"
 
 _SCALE_NOTE = (
-    "Judge only the student's most recent turn in the audio. "
-    "Use how they sound (tone, pace, pauses, hedging) as well as what they say."
+    "Judge only the student's newest turn, which is the audio. Weigh two kinds of evidence "
+    "together: how they sound (tone, pace, pauses, sighs, energy) and what they say, read "
+    "against the conversation (does it answer the tutor's last question, do they hedge, ask "
+    "for a repeat, or say they are lost). When the voice and the words disagree, let neither "
+    "decide alone."
+)
+
+# The turn's own words may or may not have reached the conversation text when the audio
+# is scored, so the model is told which is which instead of guessing.
+_CONTEXT_NOTE = (
+    "Recent tutoring conversation, oldest first. The audio that follows is the student's "
+    "newest turn. Its words may already be the last Student line here."
 )
 
 # Each rubric runs from level 0 (none) to level 4 (very strong).
@@ -99,7 +110,7 @@ async def score_turn(
     response = await client.aio.decisions.create(
         model=model,
         input=[
-            {"type": "text", "text": f"Recent tutoring conversation:\n{recent_text}"},
+            {"type": "text", "text": f"{_CONTEXT_NOTE}\n{recent_text}"},
             {
                 "type": "audio",
                 "mime_type": "audio/wav",

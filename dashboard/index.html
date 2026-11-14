@@ -72,7 +72,8 @@
 
   .camera { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
   .camera .view { aspect-ratio: 4 / 3; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--paper); overflow: hidden; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
-  .camera video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .camera video, .camera img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .camera img { object-fit: contain; } /* the whole frame the tutor gets, not a crop */
   .camera p { margin: 0 0 12px; }
   .camera .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
   .camera button { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); padding: 8px 16px; }
@@ -103,7 +104,7 @@
     </div>
   </header>
   <p class="problem" id="problem" role="alert" hidden></p>
-  <p class="consent">Starting a session turns on your microphone. Ilumina scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
+  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
 
   <div class="cols">
     <div class="stack">
@@ -123,9 +124,10 @@
         <div class="view">
           <span id="cam-off">Camera is off</span>
           <video id="cam-video" autoplay muted playsinline hidden></video>
+          <img id="cam-img" alt="What the head camera sees right now" hidden>
         </div>
         <div>
-          <p>Point a camera at your page so Ilumina can read the problem and your working.</p>
+          <p id="cam-hint">Point a camera at your page so Ilumina can read the problem and your working.</p>
           <div class="controls">
             <button id="cam-toggle" disabled>Turn camera on</button>
             <select id="cam-pick" aria-label="Which camera" hidden></select>
