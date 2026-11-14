@@ -83,7 +83,7 @@ function receive(msg) {
     $("note").textContent = msg.note ?? "";
     if (msg.scored_ms != null) {
       $("scored").hidden = false;
-      $("scored").textContent = `This turn was scored from your voice in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
+      $("scored").textContent = `This turn was scored from your voice and your words in ${(msg.scored_ms / 1000).toFixed(2)} seconds.`;
     }
   } else if (msg?.type === "teaching_move") {
     $("move").hidden = false;
@@ -97,7 +97,7 @@ function receive(msg) {
     $("running").hidden = false;
     $("running").textContent =
       `This session runs on Pipecat. Deepgram Flux hears you and Deepgram Aura-2 speaks. ` +
-      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound.`;
+      `${msg.tutor_model} does the teaching, and ${msg.emotion_model} reads how you sound and what you say.`;
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "Wear the GoPro and look at your page so Ilumina can read the problem and your working.";
   } else if (msg?.type === "camera_view" && (client?.isCamEnabled || headcamTimer)) {

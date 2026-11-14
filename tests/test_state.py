@@ -1,8 +1,9 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from ilumina.emotion import RUBRICS, build_questions, parse_answers
+from ilumina.emotion import RUBRICS, build_questions, parse_answers, score_turn
 from ilumina.state import Reading, StateTracker, describe, level_of
 
 
@@ -115,3 +116,22 @@ def test_unreadable_probability_keys_fall_back_to_the_api_confidence():
         type="score", score=3.0, confidence=0.6, probabilities={"level-3": 1.0}
     )
     assert parse_answers({"confusion": answer})["confusion"].confidence == 0.6
+
+
+def test_the_scorer_gets_the_voice_and_the_conversation_and_is_told_to_weigh_both():
+    sent = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(answers={})
+
+    client = SimpleNamespace(aio=SimpleNamespace(decisions=SimpleNamespace(create=create)))
+    talk = "Tutor: What is 3x when x is 4?\nStudent: um, seven?"
+    asyncio.run(score_turn(client, "gemini-decision-1", b"RIFF", talk))
+
+    text, audio = sent["input"]
+    assert text["type"] == "text" and talk in text["text"]
+    assert audio["type"] == "audio" and audio["mime_type"] == "audio/wav"
+    for question in sent["questions"].values():
+        assert "how they sound" in question["instructions"]
+        assert "what they say" in question["instructions"]
