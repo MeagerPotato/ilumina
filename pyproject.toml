@@ -1,0 +1,28 @@
+[project]
+name = "ilumina"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "av>=19.0.2",
+    "certifi>=2026.10.23",
+    "google-genai>=3.2",
+    "pipecat-ai[deepgram,google,runner,silero,webrtc]<2",
+    "python-dotenv>=1.2.4",
+    "sounddevice>=0.5.6",
+    "vexo-open[ble]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.uv.sources]
+vexo-open = { git = "https://github.com/VexoAI-Org/vexo-open-kit", subdirectory = "python", rev = "1e4291e2fa4896b1f603d3d4f0b009c483425da0" }
