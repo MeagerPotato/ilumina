@@ -62,7 +62,9 @@ NOTES_SCHEMA = {
 NOTES_PROMPT = """Below is the transcript of a lecture or class conversation, recorded by \
 the student's Vexo band. Turn it into study notes for an AI tutor that will later help \
 this student. Use only what is in the transcript. If the transcript is too short or not \
-a lecture, say so in the summary and leave the lists short.
+a lecture, say so in the summary and leave the lists short. Write every formula and math \
+expression in LaTeX between single dollar signs, like $x^2$ or $\\frac{{u}}{{v}}$. Keep \
+the title in plain words with no LaTeX, because the tutor says it aloud.
 
 Transcript:
 {transcript}"""
@@ -74,7 +76,8 @@ Use what the student heard in class (lecture notes, recorded by their Vexo band)
 their tutoring sessions went (moments where they sounded confused or frustrated). Put the \
 ideas they struggled with first. For each day give one goal, two or three concrete \
 practice tasks, and one question to check they got it. End with one line on what you \
-will watch for in the next tutoring session. Keep it under 300 words.
+will watch for in the next tutoring session. Keep it under 300 words. Write every formula \
+and math expression in LaTeX between single dollar signs, like $x^2$.
 
 Lecture notes:
 {lectures}

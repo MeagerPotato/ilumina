@@ -58,6 +58,7 @@ from ilumina.emotion import score_turn
 from ilumina.evidence import describe_evidence
 from ilumina.processors import (
     CameraView,
+    MicLevel,
     StudentStateInjector,
     TeachingMoveTagger,
     VoiceEvidence,
@@ -135,6 +136,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     pipeline = Pipeline(
         [
             transport.input(),
+            MicLevel(),
             stt,
             voice_evidence,
             user_aggregator,
