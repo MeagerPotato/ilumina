@@ -79,6 +79,8 @@
   .camera select { font: inherit; font-size: 15px; color: var(--ink); background: var(--panel); border: 1.5px solid var(--ink); border-radius: 6px; padding: 7px 8px; max-width: 100%; }
   .camera select:focus-visible { outline: 3px solid var(--engagement); outline-offset: 3px; }
   .seen { color: var(--muted); font-size: 15px; }
+  .scored { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .running { color: var(--muted); font-size: 15px; margin: 20px 0 0; max-width: 78ch; }
 
   .trace { margin-top: 20px; }
   .trace svg { width: 100%; height: auto; display: block; }
@@ -113,6 +115,7 @@
         <span><i class="k-read"></i>this turn's reading</span>
         <span><i class="k-band"></i>wider means less sure</span>
       </div>
+      <p class="scored" id="scored" hidden></p>
     </section>
     <section aria-labelledby="cam-h">
       <h2 id="cam-h">What Ilumina sees</h2>
@@ -144,6 +147,7 @@
     <h2 id="trace-h">Across the session</h2>
     <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ilumina ignored.</p></div>
   </section>
+  <p class="running" id="running" hidden></p>
   <audio id="bot-audio" autoplay></audio>
 </main>
 <script type="module" src="./app.js"></script>
