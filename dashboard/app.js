@@ -130,6 +130,8 @@ function addLine(who, text) {
   $("lines").scrollTop = $("lines").scrollHeight;
 }
 
+let micTimer;
+
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
@@ -148,6 +150,13 @@ function receive(msg) {
     $("mic").classList.toggle("silent", msg.silent);
     $("mic-fill").style.width = pct((msg.dbfs + 60) / 60);
     $("mic-text").textContent = msg.silent ? "Mic is silent" : "Mic is live";
+    // Levels come once a second. If they stop, no sound is reaching the bot at all.
+    clearTimeout(micTimer);
+    micTimer = setTimeout(() => {
+      $("mic").classList.add("silent");
+      $("mic-fill").style.width = "0";
+      $("mic-text").textContent = "No sound is arriving";
+    }, 3000);
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
@@ -262,7 +271,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { clearTimeout(micTimer); $("mic").hidden = true; $("status").textContent = "Not connected"; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); },
       onBotOutput: (o) => {
