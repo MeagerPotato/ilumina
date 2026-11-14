@@ -58,9 +58,10 @@ likely sticking points, check questions), and you are asked whether to save them
 is saved on your computer unless you say yes.** The sound does go to Deepgram, and the text
 to Google Gemini, before you are asked. Saved lectures go to the local `memory/` folder (never in
 git), and the tutor is told about them at the start of the next session: it opens from the
-most recent class, and the dashboard shows the classes it remembers and the study plan. With
-`ILUMINA_MEMORY=on` in `.env`, the tutor also saves the moments a student sounded confused
-or frustrated, and `plan` puts those first. The first time, macOS asks to let Terminal use
+most recent class, and the dashboard shows the classes it remembers and the study plan. When a
+session had moments where the student sounded confused or frustrated, the dashboard asks
+before it ends whether to save them, and saves only on a yes; `plan` puts those first.
+`ILUMINA_MEMORY=on` in `.env` saves them without asking. The first time, macOS asks to let Terminal use
 the microphone: click Allow.
 
 ## Settings
@@ -76,7 +77,7 @@ All in `.env`:
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
 | `ILUMINA_CAMERA` | `browser` (default) or `gopro` for the head-worn GoPro over USB. Needs FFmpeg (`brew install ffmpeg`) |
 | `GOPRO_IP` | Only if the GoPro is not found by itself |
-| `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/`. Default `off` |
+| `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/` without asking. Default `off`: the dashboard asks the student |
 
 ## Layout
 

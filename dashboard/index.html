@@ -48,6 +48,8 @@
   .stage[data-stage="hearing"] { border-left-color: var(--confidence); }
   .stage[data-stage="thinking"] { border-left-color: var(--warn); }
   .stage[data-stage="speaking"] { border-left-color: var(--confusion); }
+  .stage.ask { position: static; border-left-color: var(--ink); }
+  button.quiet { background: var(--panel); color: var(--ink); border: 1.5px solid var(--ink); padding: 10.5px 20.5px; }
   .problem { margin: 14px 0 0; padding: 10px 14px; border: 1.5px solid var(--frustration); border-radius: 6px; background: var(--panel); color: var(--frustration); font-weight: 600; overflow-wrap: anywhere; }
   .consent { margin: 14px 0 22px; font-size: 15px; color: var(--muted); max-width: 78ch; }
   .cols { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
@@ -144,6 +146,11 @@
   <div class="stage" id="stage" hidden>
     <p><b id="stage-name" role="status"></b><span id="stage-hint"></span></p>
     <button id="done" hidden>Done talking</button>
+  </div>
+  <div class="stage ask" id="ask" hidden>
+    <p><b>Save what was hard?</b><span id="ask-text"></span></p>
+    <button id="ask-save">Save and end</button>
+    <button id="ask-skip" class="quiet">End without saving</button>
   </div>
   <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
 
