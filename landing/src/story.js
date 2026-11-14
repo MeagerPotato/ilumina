@@ -349,7 +349,6 @@ export class Story {
       [51.0, { brow: 'flat', eyes: 'down', mouth: 'smile' }],
     ];
 
-    const thinkerTalk = (t) => P({ head: [0.16, 0.12, 0.04 + Math.sin(t * 2.2) * 0.03] });
     this.philTrack = new Track([
       [0, 0, (t) => P({ spine: [0.42 + Math.sin(t * 1.8) * 0.012, -0.1, 0.06] })],
       [27.7, 0.25, () => P({ spine: [0.1, -0.2, 0], head: [-0.15, -0.9, 0], hR: [-14, 46, 10], hL: [12, 40, 12], poles: {} }), E.out],
@@ -388,7 +387,6 @@ export class Story {
       [49.4, { brow: 'raised', eyes: 'glance', mouth: 'smile' }],
       [51.0, { brow: 'raised', eyes: 'wide', mouth: 'open' }],
     ];
-    this.thinkerTalk = thinkerTalk;
   }
 
   philRootAt(t) {
@@ -437,12 +435,9 @@ export class Story {
     const visible = t < 30.45 || (t > 49.4 && t < 52.4);
     p.rig.root.visible = visible;
     if (visible) {
-      if (t < 27.7 && talking('p', t)) {
-        const tt = this.thinkerTalk(tc);
-        p.rig.setBody(tt);
-        applyActor(p, this.philTrack, tc);
-        p.rig.neck.rotation.z = tt.head[2];
-      } else applyActor(p, this.philTrack, tc);
+      applyActor(p, this.philTrack, tc);
+      // a slow sway of the head while he holds forth
+      if (t < 27.7 && talking('p', t)) p.rig.neck.rotation.z = 0.04 + Math.sin(tc * 2.2) * 0.03;
       const pf = { ...stepAt(this.philFace, tc) };
       if (talking('p', t) && Math.floor(t * 8) % 2 === 0 && pf.mouth === 'closed') pf.mouth = 'talk';
       p.setExpr(pf);
@@ -955,8 +950,8 @@ export class Story {
     }
     // light bulb moment
     if (t > 43.9 && t < 46.3) {
-      const q = at(s, 20, 30, 0);
-      const by = q.y - 2 * sc;
+      const q = proj(s.rootPoint(17, 90, 4, V()));
+      const by = q.y;
       ov.sprite('bulb', q.x, by);
       if (Math.floor(t * 6) % 2 === 0) {
         for (const [dx, dy] of [[-11, -4], [11, -4], [-8, -11], [8, -11], [0, -14]]) ov.rect(q.x + dx * sc, by + dy * sc, sc, sc, '#ffd84d');
