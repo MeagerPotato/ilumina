@@ -1,4 +1,4 @@
-// Ally dashboard. Everything drawn here comes from messages the bot sends.
+// Ilumina dashboard. Everything drawn here comes from messages the bot sends.
 // Nothing is simulated: with no messages, the page stays empty.
 import { PipecatClient, SmallWebRTCTransport } from "./vendor/pipecat.js";
 
@@ -72,7 +72,7 @@ function receive(msg) {
     $("note").textContent = msg.note ?? "";
   } else if (msg?.type === "student_state_error") {
     $("note").classList.add("stale");
-    $("note").textContent = "The reading for this turn failed. Ally is using the last state it had.";
+    $("note").textContent = "The reading for this turn failed. Ilumina is using the last state it had.";
   }
 }
 
@@ -100,7 +100,7 @@ async function toggle() {
         if (o.output_type !== "sentence") return;
         if (o.segment_id == null ? o.spoken_status === "new" : shownSegments.has(o.segment_id)) return;
         shownSegments.add(o.segment_id);
-        addLine("Ally", o.text);
+        addLine("Ilumina", o.text);
       },
       onTrackStarted: (track, participant) => {
         if (track.kind !== "audio" || participant?.local) return;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ally, live</title>
+<title>Ilumina, live</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
@@ -79,7 +79,7 @@
 <body>
 <main>
   <header>
-    <h1>Ally</h1>
+    <h1>Ilumina</h1>
     <p class="tag">A tutor that listens to how you sound, and changes how it teaches.</p>
     <div class="session">
       <span class="status" id="status" role="status">Not connected</span>
@@ -87,7 +87,7 @@
     </div>
   </header>
   <p class="problem" id="problem" role="alert" hidden></p>
-  <p class="consent">Starting a session turns on your microphone. Ally scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. Audio is not saved.</p>
+  <p class="consent">Starting a session turns on your microphone. Ilumina scores the sound of each thing you say to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. Audio is not saved.</p>
 
   <div class="cols">
     <section aria-labelledby="now-h">
@@ -100,15 +100,15 @@
       </div>
     </section>
     <section aria-labelledby="talk-h">
-      <h2 id="talk-h">What Ally was told</h2>
-      <p class="note" id="note">Nothing yet. Ally gets a one-line summary before each reply.</p>
+      <h2 id="talk-h">What Ilumina was told</h2>
+      <p class="note" id="note">Nothing yet. Ilumina gets a one-line summary before each reply.</p>
       <ul class="lines" id="lines" aria-live="polite"></ul>
     </section>
   </div>
 
   <section class="trace" aria-labelledby="trace-h">
     <h2 id="trace-h">Across the session</h2>
-    <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ally ignored.</p></div>
+    <div id="trace"><p class="empty">Each turn adds a point. Hollow points are blips Ilumina ignored.</p></div>
   </section>
   <audio id="bot-audio" autoplay></audio>
 </main>

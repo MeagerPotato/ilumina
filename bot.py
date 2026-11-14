@@ -1,4 +1,4 @@
-"""Ilumina: Ally, an emotionally aware voice tutor.
+"""Ilumina: Ilumina, an emotionally aware voice tutor.
 
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
@@ -50,7 +50,7 @@ def recent_text(context: LLMContext, limit: int = 6) -> str:
 
 
 async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> None:
-    logger.info(f"Starting Ally (tutor model: {config.GOOGLE_MODEL})")
+    logger.info(f"Starting Ilumina (tutor model: {config.GOOGLE_MODEL})")
 
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
