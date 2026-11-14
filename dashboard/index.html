@@ -124,6 +124,19 @@
   .measured dd { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
   .running { color: var(--muted); font-size: 15px; margin: 20px 0 0; max-width: 78ch; }
 
+  /* The check of the student's last step: the verdict, then what, where and what next. */
+  .work .verdict { margin: 0 0 6px; padding: 8px 12px; border-left: 8px solid var(--muted); background: var(--paper); display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; }
+  .work .verdict b { font-size: 24px; font-weight: 800; line-height: 1.2; }
+  .work .verdict span { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .work .verdict[data-verdict="mistake"] { border-left-color: var(--frustration); }
+  .work .verdict[data-verdict="correct"] { border-left-color: var(--confidence); }
+  .work dl { margin: 0; }
+  .work dl div { display: grid; grid-template-columns: 15ch 1fr auto; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--grid); }
+  .work dt { color: var(--muted); font-size: 15px; }
+  .work dd { margin: 0; font-weight: 600; }
+  .work dd + dd { font-weight: 400; color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+  .work .failed { margin: 0; color: var(--warn); font-weight: 600; overflow-wrap: anywhere; }
+
   .memory .class { margin: 0 0 12px; }
   .memory .class b { font-weight: 600; }
   .memory .class > span { display: block; color: var(--muted); font-size: 15px; }
@@ -141,7 +154,7 @@
   .trace text.dimname { fill: var(--ink); font-weight: 600; font-size: 14px; }
 
   @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } h1 { font-size: 40px; } }
-  @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } .stage p span { min-height: 4.35em; } }
+  @media (max-width: 520px) { .camera { grid-template-columns: 1fr; } .work dl div { grid-template-columns: 1fr auto; } .work dt { grid-column: 1 / -1; } .stage p span { min-height: 4.35em; } }
   @media (prefers-reduced-motion: reduce) { .track *, .mic .level i { transition: none !important; } }
 </style>
 </head>
@@ -172,7 +185,7 @@
     <button id="ask-save">Save and end</button>
     <button id="ask-skip" class="quiet">End without saving</button>
   </div>
-  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
+  <p class="consent">Starting a session turns on your microphone. Ilumina scores how you sound and what you say on each turn to estimate confusion, frustration, confidence and engagement. These are estimates, not facts about how you feel. It also checks each step you give for mistakes. If you turn the camera on, Ilumina gets one picture with each thing you say. Audio and pictures are not saved.</p>
 
   <div class="cols">
     <div class="stack">
@@ -216,6 +229,11 @@
       <p class="move" id="move" hidden>Ilumina chose: <b id="move-name"></b></p>
       <div class="board" id="board" hidden><h3>On the board</h3><div class="math" id="board-math"></div></div>
       <ul class="lines" id="lines" aria-live="polite"></ul>
+    </section>
+    <section class="work" aria-labelledby="work-h">
+      <h2 id="work-h">Your last step, checked</h2>
+      <div id="work" aria-live="polite"><p class="empty">No check yet. Ilumina checks each step you give: is it right, what kind of mistake, where, and what to do next.</p></div>
+      <p class="scored" id="work-told" role="status" hidden></p>
     </section>
     <section class="memory" aria-labelledby="mem-h">
       <h2 id="mem-h">What Ilumina remembers</h2>
