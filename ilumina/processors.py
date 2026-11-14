@@ -111,7 +111,8 @@ class VoiceEvidence(FrameProcessor):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._tutor_stopped_at: float | None = None  # None while the tutor is speaking
+        self._tutor_speaking = False
+        self._tutor_stopped_at: float | None = None  # set when the tutor finishes by itself
         self._waited: float | None = None
         self._latest: dict | None = None
 
@@ -123,14 +124,20 @@ class VoiceEvidence(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, BotStartedSpeakingFrame):
-            self._tutor_stopped_at = None
+            self._tutor_speaking, self._tutor_stopped_at = True, None
         elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._tutor_stopped_at = time.monotonic()
+            # A stop the student caused (they cut in, so the tutor was no longer
+            # counted as speaking) is not the tutor finishing.
+            if self._tutor_speaking:
+                self._tutor_stopped_at = time.monotonic()
+            self._tutor_speaking = False
         elif isinstance(frame, ProposedUserStartedSpeakingFrame):
-            # No wait is recorded when the student cut the tutor off.
-            # One wait per tutor reply: a second student turn in a row has none either.
+            # No wait when the student cut the tutor off. One wait per tutor reply:
+            # a second student turn in a row has none either.
+            self._tutor_speaking = False
             stopped, self._tutor_stopped_at = self._tutor_stopped_at, None
             self._waited = None if stopped is None else time.monotonic() - stopped
+            self._latest = None  # evidence nobody took belongs to an earlier turn
         elif isinstance(frame, TranscriptionFrame):
             try:
                 self._latest = voice_evidence(frame.result, self._waited)
@@ -138,11 +145,11 @@ class VoiceEvidence(FrameProcessor):
                 logger.warning(f"Voice evidence not measured for this turn: {e}")
                 self._latest = None
             self._waited = None
-            if self._latest:
-                logger.info(f"Voice evidence: {self._latest}")  # numbers only, never the words
-                await self.push_frame(
-                    RTVIServerMessageFrame(data={"type": "voice_evidence", **self._latest})
-                )
+            logger.info(f"Voice evidence: {self._latest}")  # numbers only, never the words
+            # Sent even when empty, so the dashboard never shows an older turn's numbers.
+            await self.push_frame(
+                RTVIServerMessageFrame(data={"type": "voice_evidence", **(self._latest or {})})
+            )
         await self.push_frame(frame, direction)
 
 
