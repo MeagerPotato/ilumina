@@ -1,0 +1,21 @@
+[project]
+name = "ilumina"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=3.2",
+    "pipecat-ai[deepgram,google,runner,silero,webrtc]<2",
+    "python-dotenv>=1.2.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100

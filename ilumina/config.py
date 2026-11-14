@@ -1,0 +1,17 @@
+"""All model IDs and keys in one place, read from the environment."""
+
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+DEEPGRAM_VOICE_ID = os.getenv("DEEPGRAM_VOICE_ID") or "aura-2-helena-en"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_MODEL = os.getenv("GOOGLE_MODEL") or "gemini-4-argon"
+DECISION_MODEL = os.getenv("DECISION_MODEL") or "gemini-decision-1"
+
+# The tutor waits at most this long for the emotion reading of the turn that
+# just ended. After that it answers with the last known state.
+STATE_WAIT_SECONDS = 0.3
