@@ -4,12 +4,14 @@ Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TT
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
 Camera path:  the newest camera frame is shown to the tutor with each student turn
+              (the browser's camera, or the head-worn GoPro with ILUMINA_CAMERA=gopro)
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
               stripped before speech and shown on the dashboard
 
 Run with:  uv run bot.py   then open http://localhost:7860/dashboard/
 """
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -54,6 +56,12 @@ from ilumina.emotion import score_turn
 from ilumina.processors import CameraView, StudentStateInjector, TeachingMoveTagger
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import StateTracker, describe
+
+headcam = None
+if config.CAMERA == "gopro":
+    from ilumina.headcam import HeadCam
+
+    headcam = HeadCam()
 
 
 def recent_text(context: LLMContext, limit: int = 6) -> str:
@@ -112,7 +120,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             transport.input(),
             stt,
             user_aggregator,
-            CameraView(),
+            CameraView(headcam=headcam),
             state_injector,
             llm,
             TeachingMoveTagger(),
@@ -184,6 +192,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "type": "session_info",
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
+                    "camera": config.CAMERA,
                 }
             )
         )
@@ -200,6 +209,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         except Exception as e:  # noqa: BLE001 - never block shutting the session down
             logger.warning(f"Could not save this session to memory: {e}")
         finally:
+            if headcam:
+                # The camera stops with the session. The next student turns it on themselves.
+                await asyncio.to_thread(headcam.turn, False)
             await runner.cancel()
 
     await runner.run()
@@ -229,4 +241,29 @@ if __name__ == "__main__":
         StaticFiles(directory=Path(__file__).parent / "dashboard", html=True),
         name="dashboard",
     )
+
+    if headcam:
+        from fastapi import HTTPException, Request, Response
+
+        def only_the_dashboard(request: Request):
+            # Other websites open in the same browser must not switch or see the camera.
+            if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
+                raise HTTPException(status_code=403)
+
+        @app.post("/headcam/{state}")
+        def switch_headcam(state: str, request: Request):
+            only_the_dashboard(request)
+            headcam.turn(state == "on")
+            return {"on": headcam.on}
+
+        @app.get("/headcam/frame.jpg")
+        def headcam_frame(request: Request):
+            """The newest GoPro frame for the dashboard preview. Empty while there is none."""
+            only_the_dashboard(request)
+            jpeg = headcam.jpeg()
+            headers = {"X-Headcam-Status": headcam.status, "Cache-Control": "no-store"}
+            if jpeg is None:
+                return Response(status_code=204, headers=headers)
+            return Response(jpeg, media_type="image/jpeg", headers=headers)
+
     main()

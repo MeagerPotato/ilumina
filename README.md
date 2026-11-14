@@ -10,7 +10,7 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 - **Emotion path.** The audio of each student turn goes to Gemini Decision 1, which scores confusion, frustration, confidence and engagement with a confidence value for each.
 - **State tracker.** Plain Python that smooths the scores over turns. A single odd turn is a blip. Two turns in a row, or one very confident reading, is a trend.
 - **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
-- **Camera path.** Optional. With the camera on, the newest frame is shown to the tutor with each student turn, replacing the one before it. Pictures are not saved, and with the camera off the tutor carries on by voice.
+- **Camera path.** Optional. With the camera on, the newest frame is shown to the tutor with each student turn, replacing the one before it. Pictures are not saved, and with the camera off the tutor carries on by voice. The camera is the browser's by default. Start the bot with `ILUMINA_CAMERA=gopro` to use the head-worn GoPro from [`gopro/`](gopro/README.md) instead: the same "Turn camera on" button then starts the GoPro feed, and the panel shows the frame the tutor gets.
 - **Dashboard feed.** Every state update is sent to the browser as a `student_state` server message.
 
 All readings are estimates of how the student sounds, not facts about how they feel.
@@ -68,6 +68,8 @@ All in `.env`:
 | `GOOGLE_API_KEY` | Google AI Studio key |
 | `GOOGLE_MODEL` | Tutor brain, default `gemini-4-argon`. Use `gemini-4-hydrogen` if Argon is slow |
 | `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
+| `ILUMINA_CAMERA` | `browser` (default) or `gopro` for the head-worn GoPro over USB. Needs FFmpeg (`brew install ffmpeg`) |
+| `GOPRO_IP` | Only if the GoPro is not found by itself |
 | `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/`. Default `off` |
 
 ## Layout
@@ -77,6 +79,7 @@ All in `.env`:
 | `bot.py` | The Pipecat pipeline and wiring |
 | `ilumina/emotion.py` | Decision 1 rubrics and the scoring call |
 | `ilumina/state.py` | State tracker, no model calls, reusable outside tutoring |
+| `ilumina/headcam.py` | Runs the GoPro feed while the student has the camera on, and hands out its newest frame |
 | `ilumina/processors.py` | Hands the camera picture and the state note to the tutor before each reply, and reads its teaching move after |
 | `ilumina/prompts.py` | Ilumina's persona and teaching rules |
 | `ilumina/config.py` | Keys and model IDs from the environment |
