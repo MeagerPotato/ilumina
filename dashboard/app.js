@@ -43,6 +43,8 @@ function renderNow(snapshot) {
 
 // Deepgram's word timings for the turn, as measured. A wait is only there when one was measured.
 function renderEvidence(e) {
+  $("measured").hidden = e.words == null; // a turn with nothing measured shows nothing
+  if (e.words == null) return;
   const seconds = (v) => `${v.toFixed(1)} s`;
   const cells = [
     e.words_per_minute == null
@@ -52,7 +54,6 @@ function renderEvidence(e) {
     [e.fillers, e.fillers === 1 ? "um or uh" : "ums and uhs"],
   ];
   if (e.waited != null) cells.push([seconds(e.waited), "before you answered"]);
-  $("measured").hidden = false;
   $("evidence").innerHTML = cells.map(([value, label]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
 }
 

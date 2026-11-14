@@ -48,6 +48,11 @@ def test_a_short_answer_has_no_pace():
     assert (evidence["words"], evidence["longest_pause"], evidence["waited"]) == (1, 0.0, None)
 
 
+def test_overlapping_word_timings_never_give_a_negative_pause():
+    evidence = voice_evidence(flux_turn(("uh...", 1.0, 1.6), ("four", 1.5, 2.0)))
+    assert (evidence["longest_pause"], evidence["fillers"]) == (0.0, 1)
+
+
 def test_no_timed_words_means_no_evidence():
     assert voice_evidence(None) is None
     assert voice_evidence({"words": []}) is None
@@ -62,6 +67,7 @@ def test_the_line_for_the_scorer_says_only_what_was_measured():
     assert "3.1 seconds after the tutor finished" in line
     short = describe_evidence(voice_evidence(flux_turn(("Yes.", 4.0, 4.4))))
     assert "words a minute" not in short and "after the tutor" not in short
+    assert "1 word in" in short
 
 
 def run_frames(frames, clock) -> tuple[VoiceEvidence, list]:
@@ -94,6 +100,7 @@ def transcription(result) -> TranscriptionFrame:
 
 def test_the_wait_runs_from_the_tutor_finishing_to_the_student_starting():
     frames = [
+        BotStartedSpeakingFrame(),
         BotStoppedSpeakingFrame(),
         ProposedUserStartedSpeakingFrame(),
         transcription(HESITANT),
@@ -106,32 +113,49 @@ def test_the_wait_runs_from_the_tutor_finishing_to_the_student_starting():
     assert evidence.take() is None  # a later turn never gets this one's evidence
 
 
-def test_cutting_the_tutor_off_or_speaking_twice_in_a_row_has_no_wait():
+def waits(frames, clock) -> list:
+    _, out = run_frames(frames, clock)
+    return [f.data["waited"] for f in out if isinstance(f, RTVIServerMessageFrame)]
+
+
+def test_cutting_the_tutor_off_has_no_wait_even_on_the_turn_after():
+    # Live order: the student starts, and only then does the cut-off tutor stop.
     cut_off = [
-        BotStoppedSpeakingFrame(),
         BotStartedSpeakingFrame(),
         ProposedUserStartedSpeakingFrame(),
+        BotStoppedSpeakingFrame(),
+        transcription(HESITANT),
+        ProposedUserStartedSpeakingFrame(),
         transcription(HESITANT),
     ]
-    evidence, _ = run_frames(cut_off, clock=[100.0])
-    assert evidence.take()["waited"] is None
+    assert waits(cut_off, clock=[]) == [None, None]
 
+
+def test_speaking_twice_in_a_row_has_one_wait():
     twice = [
+        BotStartedSpeakingFrame(),
         BotStoppedSpeakingFrame(),
         ProposedUserStartedSpeakingFrame(),
         transcription(HESITANT),
         ProposedUserStartedSpeakingFrame(),
         transcription(HESITANT),
     ]
-    evidence, out = run_frames(twice, clock=[100.0, 101.0])
-    waits = [f.data["waited"] for f in out if isinstance(f, RTVIServerMessageFrame)]
-    assert waits == [1.0, None]
+    assert waits(twice, clock=[100.0, 101.0]) == [1.0, None]
+
+
+def test_evidence_nobody_took_is_dropped_when_the_next_turn_starts():
+    evidence, _ = run_frames(
+        [transcription(HESITANT), ProposedUserStartedSpeakingFrame()], clock=[]
+    )
+    assert evidence.take() is None
 
 
 def test_a_turn_without_word_timings_passes_through_and_reports_nothing():
     frame = transcription(None)
     evidence, out = run_frames([frame], clock=[])
-    assert out == [frame] and evidence.take() is None
+    sent = [f.data for f in out if isinstance(f, RTVIServerMessageFrame)]
+    assert sent == [{"type": "voice_evidence"}]  # tells the dashboard to clear old numbers
+    assert out[-1] is frame and evidence.take() is None
 
 
 def test_the_scorer_gets_the_measurements_beside_the_conversation():

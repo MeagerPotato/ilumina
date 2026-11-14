@@ -20,6 +20,10 @@ def _timed(word) -> bool:
     )
 
 
+def _letters(word: str) -> str:
+    return "".join(filter(str.isalpha, word)).lower()
+
+
 def voice_evidence(result: dict | None, waited: float | None = None) -> dict | None:
     """Evidence from one Flux end-of-turn message, or None if it has no timed words.
 
@@ -36,15 +40,16 @@ def voice_evidence(result: dict | None, waited: float | None = None) -> dict | N
         "words": len(words),
         "seconds": round(seconds, 1),
         "words_per_minute": round(len(words) / seconds * 60) if paced else None,
-        "longest_pause": round(max(pauses, default=0.0), 1),
-        "fillers": sum(w["word"].strip(".,?!").lower() in _FILLERS for w in words),
+        "longest_pause": round(max([0.0, *pauses]), 1),
+        "fillers": sum(_letters(w["word"]) in _FILLERS for w in words),
         "waited": None if waited is None else round(waited, 1),
     }
 
 
 def describe_evidence(evidence: dict) -> str:
     """The same measurements as one line of plain text, for Decision 1."""
-    parts = [f"{evidence['words']} words in {evidence['seconds']} seconds"]
+    count = "1 word" if evidence["words"] == 1 else f"{evidence['words']} words"
+    parts = [f"{count} in {evidence['seconds']} seconds"]
     if evidence["words_per_minute"] is not None:
         parts[0] += f" ({evidence['words_per_minute']} words a minute)"
     parts.append(f"longest pause between words {evidence['longest_pause']} seconds")
