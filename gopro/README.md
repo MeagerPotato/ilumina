@@ -75,7 +75,32 @@ quality, for framing" per GoPro; LIT HERO does not support Webcam mode or
 camera-on-home-network (COHN) in the Open GoPro spec, so USB preview is the
 supported low-latency path.
 
-## Wi-Fi fallback (not needed with USB)
+## Wireless, for wearing the camera with no cable
+
+```bash
+./gopro/wireless.sh        # run it from Terminal itself; Ctrl-C closes the link
+```
+
+It pairs with the camera over Bluetooth, turns on the camera's own Wi-Fi, joins
+it with the Mac's Wi-Fi, and then stays connected so the camera does not go to
+sleep. Leave it running. Anything that reads the feed (`GoProFeed()`, Ilumina
+with `ILUMINA_CAMERA=gopro`) then finds the camera at `10.5.5.9` by itself, as
+long as the camera is not also plugged in over USB.
+
+- The Mac's Wi-Fi is on the GoPro while the link is up, so internet must come
+  from somewhere else. An iPhone on a cable with Personal Hotspot on works. If
+  the script prints "NO INTERNET", open System Settings > Network > ... > Set
+  Service Order and drag the iPhone above Wi-Fi.
+- First time: put the camera in pairing mode and accept the Mac's Bluetooth
+  pairing request. macOS also asks once to let Terminal use Bluetooth.
+- If the Mac cannot join the camera's Wi-Fi by itself, the script prints the
+  network name and password to pick in the Wi-Fi menu, and carries on once the
+  camera answers.
+
+Checked only against a stand-in for the Bluetooth SDK and the fake camera. The
+real camera over Bluetooth and Wi-Fi is untested.
+
+## Wi-Fi fallback inside run.sh (older, not needed with USB or wireless.sh)
 
 `./gopro/run.sh --wifi` pairs over Bluetooth with the official `open-gopro` SDK,
 turns on the camera's access point and joins it (camera at `10.5.5.9`). On a Mac
