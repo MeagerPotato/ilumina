@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
+import pytest
+
 from ilumina.emotion import RUBRICS, build_questions, parse_answers
-from ilumina.state import Reading, StateTracker, describe
+from ilumina.state import Reading, StateTracker, describe, level_of
 
 
 def turn(tracker, value, confidence=0.6):
@@ -65,3 +67,34 @@ def test_questions_and_answer_parsing():
     }
     readings = parse_answers(answers)
     assert readings == {"confusion": Reading(0.75, 0.7)}
+
+
+def test_confidence_is_the_chance_of_the_band_not_of_one_rubric_level():
+    # Shaped like turn 6 of the first live session: the model split its vote between
+    # "confused" and "lost", so its own confidence (the top level alone) read 38%.
+    answer = SimpleNamespace(
+        type="score",
+        score=2.918,
+        confidence=0.382,
+        probabilities={"0": 0.0, "1": 0.1, "2": 0.2, "3": 0.382, "4": 0.318},
+    )
+    reading = parse_answers({"confusion": answer})["confusion"]
+    assert level_of(reading.value) == "high"
+    assert reading.confidence == pytest.approx(0.7)
+
+
+def test_a_vote_split_across_bands_stays_unsure():
+    answer = SimpleNamespace(
+        type="score",
+        score=2.0,
+        confidence=0.5,
+        probabilities={"0": 0.5, "4": 0.5},
+    )
+    assert parse_answers({"confusion": answer})["confusion"].confidence == 0
+
+
+def test_one_sure_reading_carries_the_estimate_into_the_new_level():
+    t = StateTracker()
+    turn(t, 0.1)
+    d = turn(t, 0.9, confidence=0.9)
+    assert d["level"] == "high" and d["estimate"] >= 0.65

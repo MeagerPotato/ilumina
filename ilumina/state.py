@@ -35,7 +35,7 @@ class StateTracker:
     one turn does with very high confidence. Until then the shift is a "blip".
     """
 
-    def __init__(self, smoothing: float = 0.6):
+    def __init__(self, smoothing: float = 0.8):
         self._smoothing = smoothing
         self._turn = 0
         self._estimate: dict[str, float] = {}
