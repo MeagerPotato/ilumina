@@ -7,6 +7,16 @@ Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
 Run with:  uv run bot.py   then open http://localhost:7860/client
 """
 
+import os
+
+import certifi
+
+# Some Python installs on macOS ship without root certificates, which makes the
+# Deepgram websocket connections fail with CERTIFICATE_VERIFY_FAILED. Point
+# Python at certifi's bundle unless the user already set one. Must run before
+# any connection is opened.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
 from google import genai
 from loguru import logger
 from pipecat.audio.utils import pcm_to_wav
