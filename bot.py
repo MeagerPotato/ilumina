@@ -4,9 +4,12 @@ Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TT
 Emotion path: each student turn's audio -> Gemini Decision 1 -> StateTracker
               -> a state note for the tutor and a live message for the dashboard
 
-Run with:  uv run bot.py   then open http://localhost:7860/client
+Run with:  uv run bot.py   then open http://localhost:7860/dashboard/
 """
 
+from pathlib import Path
+
+from fastapi.staticfiles import StaticFiles
 from google import genai
 from loguru import logger
 from pipecat.audio.utils import pcm_to_wav
@@ -33,7 +36,7 @@ from ilumina import config
 from ilumina.emotion import score_turn
 from ilumina.processors import StudentStateInjector
 from ilumina.prompts import GREETING_NOTE, TUTOR_SYSTEM_PROMPT
-from ilumina.state import StateTracker
+from ilumina.state import StateTracker, describe
 
 
 def recent_text(context: LLMContext, limit: int = 6) -> str:
@@ -115,7 +118,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         snapshot = tracker.update(readings)
         state_injector.set_snapshot(snapshot)
         logger.info(f"Student state: {snapshot}")
-        await worker.queue_frame(RTVIServerMessageFrame(data={"type": "student_state", **snapshot}))
+        await worker.queue_frame(
+            RTVIServerMessageFrame(
+                data={"type": "student_state", "note": describe(snapshot), **snapshot}
+            )
+        )
 
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
@@ -143,6 +150,12 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
+    from pipecat.runner.run import app, main
 
+    # The live dashboard, served by the same local server as the bot.
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=Path(__file__).parent / "dashboard", html=True),
+        name="dashboard",
+    )
     main()
