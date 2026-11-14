@@ -39,12 +39,14 @@ export class FX {
   constructor(scene) {
     const puffGeo = buildPuff().geometry(0.5, 0.5, 0.5);
     const chunkGeo = buildChunk().geometry(0.5, 0.5, 0.5);
-    this.smoke = new Pool(scene, 110, () => new THREE.Mesh(puffGeo, pixelMat({ vertexColors: false, color: 0xbdbdbd, occ: 0.35 })));
-    this.fire = new Pool(scene, 60, () => new THREE.Mesh(puffGeo, pixelMat({ vertexColors: false, color: 0xffb03b, unlit: true })));
-    this.chunks = new Pool(scene, 40, () => new THREE.Mesh(chunkGeo, pixelMat({ vertexColors: false, color: 0x8f9298 })));
+    this.smoke = new Pool(scene, 420, () => new THREE.Mesh(puffGeo, pixelMat({ vertexColors: false, color: 0xbdbdbd, occ: 0.35 })));
+    this.fire = new Pool(scene, 150, () => new THREE.Mesh(puffGeo, pixelMat({ vertexColors: false, color: 0xffb03b, unlit: true })));
+    this.chunks = new Pool(scene, 180, () => new THREE.Mesh(chunkGeo, pixelMat({ vertexColors: false, color: 0x8f9298 })));
+    const sparkGeo = withPixAttrs(new THREE.BoxGeometry(1.3, 1.3, 1.3));
+    this.sparks = new Pool(scene, 120, () => new THREE.Mesh(sparkGeo, pixelMat({ vertexColors: false, color: 0xffe066, unlit: true })));
     const bulletGeo = withPixAttrs(new THREE.BoxGeometry(1.4, 1.4, 11));
     const bulletMat = pixelMat({ vertexColors: false, color: 0xffe36b, unlit: true });
-    this.bullets = new Pool(scene, 30, () => new THREE.Mesh(bulletGeo, bulletMat));
+    this.bullets = new Pool(scene, 40, () => new THREE.Mesh(bulletGeo, bulletMat));
     const casingGeo = withPixAttrs(new THREE.BoxGeometry(1.2, 1.2, 2.6));
     const casingMat = pixelMat({ vertexColors: false, color: 0xe0ac3c });
     this.casings = new Pool(scene, 48, () => new THREE.Mesh(casingGeo, casingMat));
@@ -72,6 +74,15 @@ export class FX {
     m.material.userData.u.uAlpha.value = 1;
   }
 
+  // a bright fleck that ignores lighting: sparks, embers
+  spark(pos, color = 0xffe066, size = 1) {
+    const m = this.sparks.next();
+    if (!m) return;
+    m.position.copy(pos);
+    m.scale.setScalar(size);
+    m.material.color.setHex(color);
+  }
+
   bullet(pos, dir) {
     const m = this.bullets.next();
     if (!m) return;
@@ -92,6 +103,7 @@ export class FX {
     this.smoke.end();
     this.fire.end();
     this.chunks.end();
+    this.sparks.end();
     this.bullets.end();
     this.casings.end();
   }

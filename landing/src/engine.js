@@ -13,9 +13,11 @@ export const PITCH = Math.PI / 6; // 30 degrees down gives clean 2:1 pixel lines
 // Uniforms shared by every material in the scene.
 export const shared = {
   uDissolve: { value: 0 }, // 0 = scene visible, 1 = dissolved to white
-  uFade: { value: new THREE.Vector4(4, -4, 86, 104) }, // island center xz, inner and outer fade radius
+  uFade: { value: new THREE.Vector4(4, -4, 96, 114) }, // island center xz, inner and outer fade radius
   uFadeNoise: { value: 26 },
   uRug: { value: new THREE.Vector4(-8, 8, 54, 44) }, // rug center xz and radii
+  uImpact: { value: 0 }, // 1 = one-bit "impact frame": ink silhouettes on white
+  uFlashAll: { value: 0 }, // extra light on everything, for big explosions
 };
 
 const COMMON = /* glsl */ `
@@ -72,6 +74,8 @@ uniform float uDissolve;
 uniform vec4 uFade;
 uniform float uFadeNoise;
 uniform vec4 uRug;
+uniform float uImpact;
+uniform float uFlashAll;
 uniform float uReveal;
 uniform float uFlush;
 uniform float uFlushLevel;
@@ -168,14 +172,16 @@ const FRAG_MAIN = /* glsl */ `
 
   #ifdef PIX_UNLIT
   vec3 col = base;
+  if (uImpact > 0.5) col = vec3(1.0);
   #else
   float lumD = max(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)), 1e-4);
   float lit = dot(outgoingLight, vec3(0.299, 0.587, 0.114)) / lumD;
   lit *= 1.0 - vOcc * uOccStr;
-  lit += uBright;
+  lit += uBright + uFlashAll;
   float lv = clamp(floor(lit * 4.0 + (bay - 0.5) * uDither), 0.0, 4.0);
   vec3 col = pixRamp(base, lv);
   if (vKind > 1.5 && vKind < 2.5) col = mix(pixRamp(base * 0.42, lv), base, uGlow);
+  if (uImpact > 0.5) col = dot(col, vec3(0.299, 0.587, 0.114)) > 0.42 ? vec3(1.0) : vec3(0.07, 0.065, 0.09);
   #endif
   gl_FragColor = vec4(col, 1.0);
 }

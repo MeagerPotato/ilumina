@@ -17,11 +17,14 @@ const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-mo
 story.reduceMotion = reduceMotion;
 
 // The essential part of the scene, in art pixels. The canvas covers the whole
-// window; the scale is the largest whole number of device pixels per art
-// pixel that still fits this area, so the pixels stay perfectly square.
+// window; the scale is a whole number of device pixels per art pixel, so the
+// pixels stay perfectly square, chosen so the scene fills about 70% of what
+// would fit and has white space around it.
 const NEED_W = 316;
 const NEED_H = 256;
 const NARROW_W = 230;
+const FILL = 0.7;
+const FILL_PORTRAIT = 0.85;
 // where the world origin sits relative to the canvas center, so the island
 // and the space above it for heads and speech bubbles are centered together
 const ORIGIN_X = -8;
@@ -36,8 +39,8 @@ function computeLayout() {
   const dh = Math.max(1, Math.round(vh * dpr));
   const portrait = vw < vh;
   const needW = portrait ? NARROW_W : NEED_W;
-  let k = Math.floor(Math.min(dw / needW, dh / NEED_H));
-  k = Math.max(1, k);
+  const fit = Math.min(dw / needW, dh / NEED_H);
+  const k = Math.max(1, Math.min(Math.floor(fit), Math.round(fit * (portrait ? FILL_PORTRAIT : FILL))));
   const W = Math.ceil(dw / k);
   const H = Math.ceil(dh / k);
   const cssPerArt = k / dpr;

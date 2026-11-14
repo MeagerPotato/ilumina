@@ -33,6 +33,10 @@ const SPRITES = {
     rows: ['..o..', '..y..', 'oywyo', '..y..', '..o..'],
   },
   sparkleS: { pal: { y: '#ffd84d', w: '#ffffff' }, rows: ['.y.', 'yww', '.y.'] },
+  glint: {
+    pal: { w: '#ffffff', b: '#9fd8ff' },
+    rows: ['...w...', '...w...', '..bwb..', 'wwwwwww', '..bwb..', '...w...', '...w...'],
+  },
   check: {
     pal: { g: '#2fae5b', k: '#14552c' },
     rows: ['.......kk', '......kgk', 'kk...kgk.', 'kgk.kgk..', '.kgkgk...', '..kgk....', '...k.....'],
@@ -51,6 +55,11 @@ const SPRITES = {
       'kwwwwwwwwwk', 'kwwwwqwwwwk', '.kwwwwwwwk.', '..kkkkkkk..', '...kk......', '..k........',
     ],
   },
+};
+
+const hash = (a, b, c) => {
+  const h = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
+  return h - Math.floor(h);
 };
 
 export class Overlay {
@@ -98,7 +107,8 @@ export class Overlay {
   // Sound-effect lettering with a dark outline.
   sfx(str, cx, cy, fill = '#ffd23f', outline = '#1f2230', s = this.s) {
     const w = textWidth(str) * s;
-    const x = Math.round(cx - w / 2);
+    // kept on the canvas: a sound effect cut off at the edge reads as a glitch
+    const x = Math.max(2 * s, Math.min(this.W - w - 3 * s, Math.round(cx - w / 2)));
     const y = Math.round(cy - (GLYPH_H * s) / 2);
     for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1], [-1, 1], [1, -1], [2, 2], [1, 2], [2, 1]])
       this.text(str, x + dx * s, y + dy * s, outline, Infinity, s);
@@ -122,8 +132,9 @@ export class Overlay {
     return { w: w * s, h: h * s };
   }
 
-  // Dithered ring, used for the wearable lighting up.
-  ring(cx, cy, r, col, density = 1) {
+  // Dithered ring, used for the wearable lighting up and for shockwaves on the
+  // floor (a circle on the floor is twice as wide as it is tall on screen).
+  ring(cx, cy, r, col, density = 1, ratio = 0.62) {
     const g = this.g;
     g.fillStyle = col;
     const steps = Math.max(24, Math.round(r * 7));
@@ -131,11 +142,53 @@ export class Overlay {
     for (let i = 0; i < steps; i++) {
       const a = (i / steps) * Math.PI * 2;
       const x = Math.round(cx + Math.cos(a) * r);
-      const y = Math.round(cy + Math.sin(a) * r * 0.62);
+      const y = Math.round(cy + Math.sin(a) * r * ratio);
       const th = (bayer[(x & 3) + (y & 3) * 4] + 0.5) / 16;
       if (th > density) continue;
       g.fillRect(x, y, this.s, this.s);
     }
+  }
+
+  // Manga focus lines: streaks running in from the edges of the canvas toward
+  // (fx, fy). `skip(x, y)` keeps them off whatever should stay clear.
+  focusLines(fx, fy, seed, { n = 56, col = '#d6dae3', reach = [0.35, 0.65], thick = 1, skip = null } = {}) {
+    const g = this.g;
+    const W = this.W, H = this.H;
+    g.fillStyle = col;
+    for (let i = 0; i < n; i++) {
+      const a = ((i + hash(i, seed, 1) * 0.9) / n) * Math.PI * 2;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      // distance from the focus to the canvas edge along this ray
+      const tx = ca > 0 ? (W - fx) / ca : ca < 0 ? -fx / ca : Infinity;
+      const ty = sa > 0 ? (H - fy) / sa : sa < 0 ? -fy / sa : Infinity;
+      const edge = Math.min(tx, ty);
+      if (!(edge > 0)) continue;
+      const r0 = edge * (1 - (reach[0] + hash(i, seed, 2) * (reach[1] - reach[0])));
+      for (let r = edge; r >= r0; r -= 1) {
+        const x = Math.round(fx + ca * r), y = Math.round(fy + sa * r);
+        if (skip && skip(x, y)) continue;
+        const w = r > r0 + (edge - r0) * 0.55 ? thick + 1 : thick;
+        g.fillRect(x, y, w, w);
+      }
+    }
+  }
+
+  // Lock-on brackets around (cx, cy), `size` art pixels from the center.
+  reticle(cx, cy, size, col = '#ff3b30', ink = '#1f2230') {
+    const g = this.g;
+    const s = this.s;
+    const arm = Math.max(3 * s, Math.round(size * 0.5));
+    const bars = [];
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const x = Math.round(cx + sx * size), y = Math.round(cy + sy * size);
+      bars.push([sx < 0 ? x : x - arm + s, y, arm, s]);
+      bars.push([x, sy < 0 ? y : y - arm + s, s, arm]);
+    }
+    bars.push([Math.round(cx) - s, Math.round(cy), 3 * s, s], [Math.round(cx), Math.round(cy) - s, s, 3 * s]);
+    g.fillStyle = ink;
+    for (const [x, y, w, h] of bars) g.fillRect(x - 1, y - 1, w + 2, h + 2);
+    g.fillStyle = col;
+    for (const [x, y, w, h] of bars) g.fillRect(x, y, w, h);
   }
 
   // Speech bubble pointing at (ax, ay). `shown` is how many characters are typed so far.

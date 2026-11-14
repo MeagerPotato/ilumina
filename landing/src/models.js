@@ -231,115 +231,155 @@ export function buildChunk() {
 
 // ---------------------------------------------------------------- the gun
 
-// Local frame: origin at the pistol grip, +z toward the muzzle, +x is the
-// holder's left. Returns separate grids for the moving parts.
-export function buildGun() {
-  const body = new Vox();
-  // stock
-  body.box(-4, -2, -33, 3, 6, -9, (x, y, z) => (z <= -32 ? PAL.black : PAL.poly));
-  body.box(-4, -5, -30, 3, -3, -18, PAL.poly);
-  // receiver
-  body.fill(roundBox(-6, 5, -3, 13, -9, 37, 1.5), -6, -3, -9, 5, 13, 37, (x, y, z) => {
-    if (x === -6 && y >= 6 && y <= 9 && z >= 12 && z <= 22) return PAL.black;
-    if (y === 13 && z % 3 === 0) return PAL.metalDk;
-    if ((z === -6 || z === 34) && (y === 2 || y === 9)) return PAL.metalLt;
-    if (y >= 1 && y <= 2) return PAL.metalDk;
-    return PAL.metal;
-  });
-  body.box(-2, 14, -4, 1, 14, 31, PAL.metalDk);
-  // pistol grip, raked back
-  for (let y = -18; y <= -3; y++) {
-    const off = Math.round((y + 3) * 0.35);
-    body.box(-3, y, -1 + off, 2, y, 5 + off, (x, yy, z) => ((z + yy) % 4 === 0 ? 0x684024 : PAL.wood));
-  }
-  // trigger guard and trigger
-  body.box(-1, -8, 7, 0, -8, 13, PAL.metalDk);
-  body.box(-1, -7, 13, 0, -3, 13, PAL.metalDk);
-  body.box(-1, -6, 9, 0, -4, 9, PAL.black);
-  // drum magazine with hazard stripes
-  body.cyl('x', -9, 21, 9.5, -5, 4, (x, y, z) => {
-    const a = Math.atan2(y + 9, z - 21);
-    if (x === -5 || x === 4) return Math.floor((a / Math.PI) * 6 + 12) % 2 === 0 ? PAL.hazard : PAL.black;
-    return PAL.metalDk;
-  });
-  body.cyl('x', -9, 21, 2.2, -6, 5, PAL.metalLt);
-  // barrel shroud with vents
-  body.cyl('z', -0.5, 6, 6.6, 37, 64, (x, y, z) => {
-    const a = Math.atan2(y - 6, x + 0.5);
-    if (z % 5 === 2 && Math.floor((a / Math.PI) * 4 + 8) % 2 === 0) return PAL.black;
-    return z <= 38 || z >= 63 ? PAL.metalDk : PAL.metal;
-  });
-  // front grip
-  body.box(-2, -15, 45, 1, -1, 49, PAL.poly);
-  body.box(-3, -16, 44, 2, -16, 50, PAL.black);
-  // scope
-  body.box(-2, 14, 6, 1, 16, 8, PAL.metalDk);
-  body.box(-2, 14, 21, 1, 16, 23, PAL.metalDk);
-  body.cyl('z', -0.5, 19, 3.2, 1, 27, (x, y, z) => (z >= 26 ? PAL.metalDk : PAL.poly));
-  body.cyl('z', -0.5, 19, 2.2, 28, 28, PAL.lens, GLOW);
-  // bayonet taped under the barrel
-  body.box(-1, -3, 56, 0, 0, 68, PAL.wood);
-  for (const z of [58, 64]) body.cyl('z', -0.5, -0.5, 3, z, z + 1, PAL.tape);
-  body.box(-2, -4, 69, 1, 1, 69, PAL.metalLt);
-  for (let z = 70; z <= 102; z++) {
-    const t = (z - 70) / 32;
-    const top = Math.round(1 - t * 3.5);
-    const bot = Math.round(-4 + t * 2.5);
-    if (bot > top) continue;
-    body.box(-1, bot, z, 0, top, z, (x, y) => (y === bot ? PAL.bladeDk : PAL.blade));
-  }
-  // a sticker, for personality
-  body.box(5, 4, 26, 5, 8, 30, 0xff7eb6);
-  body.set(5, 7, 27, 0x25272c);
-  body.set(5, 7, 29, 0x25272c);
-  body.box(5, 5, 27, 5, 5, 29, 0x25272c);
+// Local frame: origin at the top of the pistol grip, +z toward the muzzle,
+// +y up, +x is the holder's left. The gun is built as separate parts so it
+// can fly together piece by piece in the student's hands.
+export const GUN = {
+  muzzle: [0, 5.5, 64], // front of the rotating barrels
+  gripR: [0, -9, 2.5], // right hand on the pistol grip
+  gripL: [13, 1, 14], // left hand on the side handle
+  port: [-9, 8.5, 14], // ejection port, right side
+  podL: [10, 20.5, 25.5], // front of the left missile pod
+  podR: [-10, 20.5, 25.5],
+  cm: [0, 4, 20], // rough center of mass
+};
 
-  // rotating barrel cluster, pivot on the shroud axis at its front
+const GC = {
+  gun: 0x4a5263,
+  gunDk: 0x353b48,
+  gunLt: 0x6d7689,
+  poly: 0x2a2d34,
+  black: 0x1f2126,
+  accent: 0xff3b30,
+};
+
+export function buildGun() {
+  // receiver, pistol grip, trigger and a side handle for the second hand
+  const core = new Vox();
+  core.fill(roundBox(-7, 6, -3, 13, -8, 32, 2), -7, -3, -8, 6, 13, 32, (x, y, z) => {
+    if (y >= 12 && z % 4 === 0) return GC.gunDk;
+    if (y <= -2) return GC.gunDk;
+    if (z === 0 || z === 22) return GC.gunDk;
+    return GC.gun;
+  });
+  core.box(-2, 14, -6, 1, 14, 30, (x, y, z) => (z % 3 === 0 ? GC.black : GC.gunDk));
+  for (let z = -5; z <= 30; z++) {
+    core.set(-8, 5, z, GC.accent, GLOW);
+    core.set(7, 5, z, GC.accent, GLOW);
+  }
+  core.box(-8, 7, 9, -8, 10, 18, GC.black);
+  core.box(-8, 8, 10, -8, 9, 17, 0xb08a3a);
+  for (let y = -17; y <= -3; y++) {
+    const off = Math.round((y + 3) * 0.35);
+    core.box(-3, y, -1 + off, 2, y, 5 + off, (x, yy, z) => ((z + yy + x) % 3 === 0 ? 0x5e3a20 : PAL.wood));
+  }
+  core.box(-1, -9, 5, 0, -9, 10, GC.gunDk);
+  core.box(-1, -8, 10, 0, -3, 10, GC.gunDk);
+  core.box(-1, -7, 7, 0, -4, 7, GC.black);
+  core.box(7, 4, 12, 12, 6, 15, GC.poly);
+  core.box(11, -4, 12, 14, 4, 15, (x, y) => (y % 3 === 0 ? GC.black : GC.poly));
+  // a sticker, for personality
+  core.box(7, 8, 0, 7, 12, 5, 0xff7eb6);
+  core.set(7, 11, 1, GC.black);
+  core.set(7, 11, 4, GC.black);
+  core.box(7, 9, 1, 7, 9, 4, GC.black);
+
+  // skeleton stock
+  const stock = new Vox();
+  stock.box(-5, -3, -22, 4, 9, -9, (x, y, z) => (z <= -21 ? GC.black : GC.poly));
+  stock.carve((x, y, z) => y >= 1 && y <= 5 && z >= -19 && z <= -13);
+  stock.box(-4, -7, -20, 3, -4, -14, GC.poly);
+  stock.box(-5, 9, -16, 4, 10, -10, GC.black);
+
+  // drum magazine with hazard stripes
+  const drum = new Vox();
+  drum.cyl('x', -12, 21.5, 9.5, -6, 5, (x, y, z) => {
+    if (x === -6 || x === 5) {
+      const r = Math.hypot(y + 12, z - 21.5);
+      if (r < 2.6) return GC.gunLt;
+      const a = Math.atan2(y + 12, z - 21.5);
+      return Math.floor((a / Math.PI) * 6 + 12) % 2 === 0 ? PAL.hazard : GC.black;
+    }
+    return GC.gunDk;
+  });
+  drum.box(-3, -3, 17, 2, -2, 26, GC.gunDk);
+
+  // barrel shroud with vents and hinge blocks for the knives
+  const shroud = new Vox();
+  shroud.cyl('z', -0.5, 5, 7.5, 32, 46, (x, y, z) => {
+    const a = Math.atan2(y - 5, x + 0.5);
+    if (z % 4 === 2 && z > 33 && z < 45 && Math.floor((a / Math.PI) * 5 + 10) % 2 === 0) return GC.black;
+    return z <= 33 || z >= 45 ? GC.gunDk : GC.gun;
+  });
+  shroud.box(-4, 13, 34, 3, 13, 44, GC.gunLt);
+  shroud.box(7, 3, 36, 9, 7, 39, GC.gunDk);
+  shroud.box(-10, 3, 36, -8, 7, 39, GC.gunDk);
+
+  // six rotating barrels, pivot on the shroud axis at its front
   const barrels = new Vox();
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
-    barrels.cyl('z', Math.cos(a) * 4, Math.sin(a) * 4, 1.7, 0, 28, (x, y, z) => (z >= 27 ? PAL.black : PAL.metalDk));
+    barrels.cyl('z', Math.cos(a) * 4.2, Math.sin(a) * 4.2, 1.7, 0, 17, (x, y, z) => (z >= 17 ? GC.black : GC.gunDk));
   }
-  barrels.cyl('z', 0, 0, 6.6, 20, 22, PAL.metal);
-  barrels.cyl('z', 0, 0, 1.6, 0, 26, PAL.metalLt);
+  barrels.cyl('z', 0, 0, 7, 6, 7, GC.gun);
+  barrels.cyl('z', 0, 0, 7.3, 13, 14, GC.gunDk);
+  barrels.cyl('z', 0, 0, 1.5, 0, 15, GC.gunLt);
 
-  // missile pods on hinges either side of the receiver top
+  // red-eyed scope on the top rail
+  const scope = new Vox();
+  scope.box(-2, 15, 8, 1, 16, 9, GC.gunDk);
+  scope.box(-2, 15, 19, 1, 16, 20, GC.gunDk);
+  scope.cyl('z', -0.5, 19.5, 3.3, 4, 24, (x, y, z) => (z >= 22 || z <= 5 ? GC.gunDk : GC.poly));
+  scope.cyl('z', -0.5, 19.5, 2.4, 25, 25, 0xff4a3d, GLOW);
+
+  // missile pods (four tubes each) and their flip-up front covers
   const pod = (sign) => {
     const g = new Vox();
-    const x0 = sign > 0 ? 0 : -11, x1 = sign > 0 ? 11 : 0;
-    g.fill(roundBox(x0, x1, 0, 12, -8, 20, 1.2), x0, 0, -8, x1, 12, 20, (x, y, z) => {
-      if (z === 20) return PAL.oliveDk;
-      if (y === 6 && (z % 4 === 0)) return PAL.oliveDk;
-      if (z >= 14 && z <= 16) return PAL.hazard;
+    const x0 = sign > 0 ? 0 : -11, x1 = x0 + 11;
+    g.fill(roundBox(x0, x1, 0, 12, -10, 14, 1.2), x0, 0, -10, x1, 12, 14, (x, y, z) => {
+      if (z >= 2 && z <= 4) return (x + y + z) % 4 < 2 ? PAL.hazard : GC.black;
+      if (y === 6 && z % 4 === 0) return PAL.oliveDk;
       return PAL.olive;
     });
     const cx = sign > 0 ? [3, 8] : [-8, -3];
     for (const tx of cx)
       for (const ty of [3, 9]) {
-        g.box(tx - 1, ty - 1, 21, tx + 1, ty + 1, 21, PAL.white);
-        g.box(tx, ty, 22, tx, ty, 22, PAL.red);
-        g.set(tx - 1, ty, 22, PAL.red);
-        g.set(tx, ty - 1, 22, PAL.red);
+        g.box(tx - 1, ty - 1, 14, tx + 1, ty + 1, 14, GC.black);
+        g.set(tx, ty, 14, PAL.red);
       }
-    // strut down to the receiver
-    g.box(sign > 0 ? 1 : -2, -4, 2, sign > 0 ? 2 : -1, -1, 6, PAL.metalDk);
+    g.box(sign > 0 ? 2 : -3, -2, -6, sign > 0 ? 3 : -2, -1, 6, GC.gunDk);
+    g.set(sign > 0 ? x1 : x0, 10, 9, 0x7dff8a, GLOW);
+    g.set(sign > 0 ? x1 : x0, 10, 7, GC.accent, GLOW);
+    return g;
+  };
+  const cover = (sign) => {
+    const g = new Vox();
+    const x0 = sign > 0 ? 0 : -11, x1 = x0 + 11;
+    g.box(x0, -13, 0, x1, -1, 0, (x, y) => (y === -7 || y === -2 ? PAL.oliveDk : PAL.olive));
     return g;
   };
 
-  // spring-loaded kitchen knives on the shroud sides
-  const knife = (sign) => {
+  // chef's knives on hinges either side of the shroud
+  const knife = () => {
     const g = new Vox();
-    g.box(0, -1, -11, 1, 1, -1, (x, y, z) => (z === -8 || z === -4 ? PAL.tape : PAL.black));
-    g.box(-1, -2, 0, 2, 2, 0, PAL.metalLt);
-    for (let z = 1; z <= 26; z++) {
-      const t = z / 26;
-      const top = Math.round(2 - t * 4.2 * t);
-      const bot = Math.round(-3 + t * 3);
+    g.box(0, -1, -12, 1, 1, -2, (x, y, z) => (y === 0 && (z === -10 || z === -6) ? GC.gunLt : GC.black));
+    g.box(-1, -2, -1, 2, 2, 0, GC.gunLt);
+    for (let z = 1; z <= 28; z++) {
+      const t = z / 28;
+      const top = Math.round(2 - t * t * 4.5);
+      const bot = Math.round(-5 + t * 4.4 + Math.max(0, t - 0.65) * 7);
       if (bot > top) continue;
-      g.box(0, bot, z, 1, top, z, (x, y) => (y === bot ? PAL.bladeDk : PAL.blade));
+      g.box(0, bot, z, 1, top, z, (x, y) => (y === bot ? PAL.bladeDk : y === top ? 0xb9c2cc : PAL.blade));
     }
     return g;
   };
+
+  // a meat cleaver taped under the barrels
+  const cleaver = new Vox();
+  cleaver.box(-1, 0, -10, 0, 2, 0, PAL.wood);
+  for (const z of [-8, -3]) cleaver.box(-2, -1, z, 1, 3, z + 1, PAL.tape);
+  cleaver.box(-1, -13, 1, 0, 2, 22, (x, y) => (y === -13 ? PAL.bladeDk : y === 2 ? 0x8f98a3 : PAL.blade));
+  cleaver.carve((x, y, z) => y >= -2 && y <= 0 && z >= 3 && z <= 5);
 
   // muzzle flash star
   const flash = new Vox();
@@ -349,7 +389,10 @@ export function buildGun() {
   ];
   for (const [x, y, z, r] of star) flash.ell(x, y, z, r, r, r * 1.2, (xx, yy, zz) => (Math.hypot(xx, yy, zz - 2) < 3 ? 0xffffff : 0xffd34d));
 
-  return { body, barrels, podL: pod(1), podR: pod(-1), knifeL: knife(1), knifeR: knife(-1), flash };
+  return {
+    core, stock, drum, shroud, barrels, scope, cleaver, flash,
+    podL: pod(1), podR: pod(-1), coverL: cover(1), coverR: cover(-1), knifeL: knife(), knifeR: knife(),
+  };
 }
 
 export function buildMissile() {

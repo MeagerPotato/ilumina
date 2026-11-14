@@ -56,8 +56,12 @@ export function buildStage() {
   paper2.rotation.y = -0.05;
   scene.add(paper2);
 
-  const chair = buildChair().mesh(propMat);
-  chair.position.copy(LAYOUT.chair);
+  // the chair hangs from a pivot at its back legs so it can be knocked over
+  const chair = new THREE.Group();
+  const chairMesh = buildChair().mesh(propMat);
+  chairMesh.position.set(0, 0, 10);
+  chair.add(chairMesh);
+  chair.position.set(LAYOUT.chair.x, 0, LAYOUT.chair.z - 10);
   scene.add(chair);
 
   const rock = buildRock().mesh(propMat);
@@ -71,6 +75,18 @@ export function buildStage() {
   scorch.position.copy(LAYOUT.rock).add(new THREE.Vector3(0, -0.6, 0));
   scorch.visible = false;
   scene.add(scorch);
+  // smaller burn marks where the other missiles land
+  const scorchGeo = buildScorch().geometry(0, 0, 0);
+  const scorches = [];
+  for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(scorchGeo, propMat);
+    m.receiveShadow = true;
+    m.scale.set(0.55, 1, 0.55);
+    m.rotation.y = i * 1.7;
+    m.visible = false;
+    scene.add(m);
+    scorches.push(m);
+  }
 
   const bin = buildBin().mesh(propMat);
   bin.position.copy(LAYOUT.bin);
@@ -106,33 +122,39 @@ export function buildStage() {
   flag.rotation.x = Math.PI; // the stick points out past the fist
   flag.visible = false;
 
-  // the gun and its moving parts
-  const gunGrids = buildGun();
+  // The gun: each part hangs on its own holder so the parts can fly in from
+  // the edge of the world and lock together in the student's hands.
+  const gg = buildGun();
   const gunMat = pixelMat();
   const gun = new THREE.Group();
-  const gunBody = gunGrids.body.mesh(gunMat, 0, 0, 0);
-  gun.add(gunBody);
-  const barrels = gunGrids.barrels.mesh(gunMat, 0, 0, 0);
+  const holder = (parent, grid, at, pivot = at) => {
+    const h = new THREE.Group();
+    h.position.set(at[0], at[1], at[2]);
+    h.add(grid.mesh(gunMat, pivot[0], pivot[1], pivot[2]));
+    parent.add(h);
+    h.userData.home = h.position.clone();
+    return h;
+  };
+  const gunParts = {
+    core: holder(gun, gg.core, [0, 5, 12]),
+    stock: holder(gun, gg.stock, [0, 3, -15]),
+    drum: holder(gun, gg.drum, [0, -11.5, 22]),
+    shroud: holder(gun, gg.shroud, [0, 5.5, 39]),
+    scope: holder(gun, gg.scope, [0, 20, 14.5]),
+    podL: holder(gun, gg.podL, [4, 14, 10], [0, 0, 0]),
+    podR: holder(gun, gg.podR, [-5, 14, 10], [0, 0, 0]),
+    cleaver: holder(gun, gg.cleaver, [0, -5, 46], [0, 0, 0]),
+  };
   const barrelPivot = new THREE.Group();
-  barrelPivot.position.set(-0.5, 6, 64);
-  barrelPivot.add(barrels);
-  gun.add(barrelPivot);
-  const podL = new THREE.Group();
-  podL.position.set(5, 13, 10);
-  podL.add(gunGrids.podL.mesh(gunMat, 0, 0, 0));
-  const podR = new THREE.Group();
-  podR.position.set(-6, 13, 10);
-  podR.add(gunGrids.podR.mesh(gunMat, 0, 0, 0));
-  gun.add(podL, podR);
-  const knifeL = new THREE.Group();
-  knifeL.position.set(6, 6, 48);
-  knifeL.add(gunGrids.knifeL.mesh(gunMat, 0, 0, 0));
-  const knifeR = new THREE.Group();
-  knifeR.position.set(-8, 6, 48);
-  knifeR.add(gunGrids.knifeR.mesh(gunMat, 0, 0, 0));
-  gun.add(knifeL, knifeR);
-  const flash = gunGrids.flash.mesh(pixelMat({ unlit: true }), 0, 0, 0, { cast: false, receive: false });
-  flash.position.set(-0.5, 6, 93);
+  barrelPivot.position.set(0, 0, 7);
+  barrelPivot.add(gg.barrels.mesh(gunMat, 0.5, 0.5, 0));
+  gunParts.shroud.add(barrelPivot);
+  const knifeL = holder(gunParts.shroud, gg.knifeL, [10.5, 0, -1.5], [1, 0.5, 0]);
+  const knifeR = holder(gunParts.shroud, gg.knifeR, [-10.5, 0, -1.5], [1, 0.5, 0]);
+  const coverL = holder(gunParts.podL, gg.coverL, [0, 13, 15], [0, 0, 0]);
+  const coverR = holder(gunParts.podR, gg.coverR, [0, 13, 15], [0, 0, 0]);
+  const flash = gg.flash.mesh(pixelMat({ unlit: true }), 0.5, 0.5, 0, { cast: false, receive: false });
+  flash.position.set(0, 5.5, 66);
   gun.add(flash);
   gun.visible = false;
   scene.add(gun);
@@ -140,7 +162,7 @@ export function buildStage() {
   const missileGrid = buildMissile();
   const flameGrid = buildFlame();
   const flameMat = pixelMat({ unlit: true });
-  const missiles = [0, 1, 2, 3].map(() => {
+  const missiles = [0, 1, 2, 3, 4, 5, 6, 7].map(() => {
     const g = new THREE.Group();
     g.add(missileGrid.mesh(gunMat, 0.5, 0.5, 8));
     const fl = flameGrid.mesh(flameMat, 0.5, 0.5, -8, { cast: false, receive: false });
@@ -163,6 +185,7 @@ export function buildStage() {
   return {
     scene, lights, floor, desk, deskStuff, paper1, paper1Mat, paper2, paper2Mat, p1Start, p1Lines, p1Messy, p2Keys,
     chair, rock, rubble, scorch, bin, paperBall, student, phil, pencil, pencilBits, flag,
-    gun, gunBody, barrelPivot, podL, podR, knifeL, knifeR, flash, missiles, device: deviceRoot, deviceMat, fx, PAL,
+    gun, gunMat, gunParts, barrelPivot, knifeL, knifeR, coverL, coverR, flash, missiles, scorches,
+    device: deviceRoot, deviceMat, fx, PAL,
   };
 }
