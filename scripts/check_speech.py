@@ -9,11 +9,17 @@ ElevenLabs speak a fixed test sentence and hears it back, live and as a lecture 
 import asyncio
 import base64
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import certifi  # noqa: E402
+
+# As in bot.py: Python on macOS does not find the system's certificates by itself.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 import httpx
 from websockets.asyncio.client import connect
