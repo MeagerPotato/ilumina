@@ -787,6 +787,12 @@ async function toggle() {
 }
 
 if (HOSTED) {
+  // A cold bot function takes several seconds to start (it unpacks its packages first).
+  // Wake it while the page loads, so Start session connects quickly. The GET is refused
+  // with 405 and starts nothing.
+  const wake = () => fetch("/api/bot", { cache: "no-store" }).catch(() => {});
+  wake();
+  $("passcode").addEventListener("focus", wake, { once: true });
   $("passcode").hidden = false;
   try { $("passcode").value = sessionStorage.getItem("ilumina-passcode") ?? ""; } catch {}
   $("passcode").addEventListener("keydown", (e) => { if (e.key === "Enter" && !client) toggle(); });

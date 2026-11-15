@@ -41,7 +41,12 @@ EMOTIONS = ("angry", "fearful", "happy", "neutral", "sad")
 PRIOR_TURNS = 3
 # Out-of-domain safety: acted speech is more extreme than a student's, so one turn's
 # evidence is capped at this likelihood ratio either way.
-MAX_RATIO = 6.0
+MAX_RATIO = 4.0
+# Live browser audio (echo cancellation, gain control, clipping) can sit far outside the
+# acted recordings the model learned from. A feature more than 3 of the student's usual
+# spreads away is read as 3: on held-out speakers this changed nothing (59.0% either way),
+# and it stops one odd measurement from pinning every ratio at the cap.
+Z_LIMIT = 3.0
 
 # (tutoring dimension, emotions whose share is the cue, level the cue points away from)
 # Levels run 0..4 as in the rubrics. The likelihood of level L is ratio ** ((L - pivot) / 4)
@@ -131,7 +136,7 @@ class VoiceModel:
         as a likelihood ratio, and how much the usual can be trusted yet (0 to 1).
         """
         x = np.array([features[name] for name in self._features], dtype=float)
-        p = self._probabilities(self._normaliser.z(x))
+        p = self._probabilities(np.clip(self._normaliser.z(x), -Z_LIMIT, Z_LIMIT))
         maturity = self._normaliser.turns / (self._normaliser.turns + PRIOR_TURNS)
         self._normaliser.learn(x)
         ratios = {}
