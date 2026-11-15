@@ -702,31 +702,47 @@ function sendStill() {
     }
   }
 }
-async function setHostedCam(on, deviceId) {
+// Each start or stop gets a number, and a start that finishes after a newer one is dropped.
+let camStart = 0, hostedWanted = false;
+async function setHostedCam(on, deviceId, note = "") {
+  const mine = ++camStart;
+  hostedWanted = on && Boolean(client);
   clearInterval(stillTimer);
   hostedCam?.getTracks().forEach((t) => t.stop());
   hostedCam = undefined;
   if (!on) return resetCamera("Camera is off. Ilumina hears you but sees nothing.");
+  if (!client) return; // the session ended; its own reset already said so
   $("cam-toggle").textContent = "Turn camera off";
   $("cam-seen").textContent = "Starting the camera. Allow it if the browser asks.";
+  let stream;
   try {
-    hostedCam = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 1280 } } });
+    stream = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 1280 } } });
   } catch (e) {
     console.error(e);
+    if (mine !== camStart) return;
     // A camera that was unplugged or is busy: fall back to the browser's own choice.
-    if (deviceId && e?.name !== "NotAllowedError") return setHostedCam(true);
+    if (deviceId && e?.name !== "NotAllowedError") {
+      return setHostedCam(true, "", "That camera could not be opened, so the default one is on.");
+    }
+    hostedWanted = false;
     return resetCamera(e?.name === "NotAllowedError"
       ? "The browser blocked the camera. Allow it in the address bar, then try again."
       : "The camera could not be turned on. Ilumina carries on by voice.");
   }
-  if (!client) { hostedCam.getTracks().forEach((t) => t.stop()); hostedCam = undefined; return; }
-  showCamera(hostedCam.getVideoTracks()[0]);
-  $("cam-seen").textContent = "Camera is on. Ilumina gets a picture when you next speak.";
+  if (mine !== camStart || !client) { stream.getTracks().forEach((t) => t.stop()); return; }
+  hostedCam = stream;
+  const track = stream.getVideoTracks()[0];
+  // Unplugged while in use: switch to whatever camera is left.
+  track?.addEventListener("ended", () => {
+    if (hostedCam === stream) setHostedCam(true, "", "The camera was unplugged, so the default one is on.");
+  });
+  showCamera(track);
   stillTimer = setInterval(sendStill, 1000);
   await listHostedCams();
-  if (![...$("cam-pick").options].some((o) => /gopro/i.test(o.text))) {
-    $("cam-seen").textContent += " To use a GoPro, turn on its webcam mode and it shows up in the list.";
-  }
+  if (mine !== camStart) return;
+  const goproHint = [...$("cam-pick").options].some((o) => /gopro/i.test(o.text))
+    ? "" : " To use a GoPro, turn on its webcam mode and it shows up in the list.";
+  $("cam-seen").textContent = (note || "Camera is on. Ilumina gets a picture when you next speak.") + goproHint;
 }
 async function listHostedCams() {
   listCameras(await videoInputs());
@@ -772,7 +788,7 @@ function setHeadcam(on) {
 function toggleCamera() {
   if (!client) return;
   if (headcam) return setHeadcam(!headcamTimer);
-  if (HOSTED) return hostedCam ? setHostedCam(false) : preferredCam().then((id) => setHostedCam(true, id));
+  if (HOSTED) return hostedWanted ? setHostedCam(false) : preferredCam().then((id) => setHostedCam(true, id));
   const on = !client.isCamEnabled;
   client.enableCam(on);
   if (on) {
@@ -815,7 +831,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { applyMic(); $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { held = false; pttSent = ""; showTalk(); $("passcode").hidden = !(HOSTED && needsPasscode); clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { held = false; pttSent = ""; showTalk(); $("passcode").hidden = !(HOSTED && needsPasscode); clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedWanted || hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
