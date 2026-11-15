@@ -426,6 +426,28 @@ function setStage(stage, hint, quiet = false) {
   if (stage === "thinking") thinkTimer = setTimeout(noAnswer, NO_ANSWER_AFTER_MS);
 }
 
+// Pipecat's browser audio player files every chunk of the bot's voice under one track
+// id, "default", and on an interruption it blocks that id for good. After the first
+// time the student talked over Ilumina, every later reply was dropped: the bot said it
+// was speaking and nothing played. Each stretch between interruptions gets its own id,
+// so only the audio that was actually interrupted is dropped.
+function keepBotAudioAfterInterruptions(transport) {
+  const media = transport?._mediaManager;
+  if (typeof media?.bufferBotAudio !== "function" || typeof media?.interruptBotAudio !== "function") {
+    console.warn("Bot audio player not found; replies after an interruption may be silent.");
+    return;
+  }
+  let stretch = 0;
+  const buffer = media.bufferBotAudio.bind(media);
+  const interrupt = media.interruptBotAudio.bind(media);
+  media.bufferBotAudio = (audio) => buffer(audio, `bot-${stretch}`);
+  media.interruptBotAudio = async () => {
+    const result = await interrupt(); // blocks the current id, so late chunks of it drop
+    stretch += 1;
+    return result;
+  };
+}
+
 function noAnswer() {
   const caught = !micPaused || turnEnded; // did the bot get the end of the turn?
   resumeMic();
@@ -749,6 +771,7 @@ async function toggle() {
       if (!check.ok) throw Object.assign(new Error("passcode"), { status: check.status });
       try { sessionStorage.setItem("ilumina-passcode", passcode); } catch {}
       const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/bot?passcode=${encodeURIComponent(passcode)}`;
+      keepBotAudioAfterInterruptions(client._transport ?? client.transport);
       await client.connect({ wsUrl });
     } else {
       await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
