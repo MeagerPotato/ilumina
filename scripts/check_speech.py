@@ -15,10 +15,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import httpx  # noqa: E402
-from websockets.asyncio.client import connect  # noqa: E402
+import httpx
+from websockets.asyncio.client import connect
 
-from ilumina import config, speech, transcribe  # noqa: E402
+from ilumina import config, speech, transcribe
 
 SENTENCE = "Two x plus three equals eleven, so x is four."
 
