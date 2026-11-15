@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -219,7 +221,8 @@ __marimo__/
 *.eval.log
 *.debug.log
 
-# Node.js (client/)
+# macOS Finder metadata
+.DS_Store
 
 # Ilumina memory: lectures, sessions, study plans (personal, local only)
 memory/

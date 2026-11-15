@@ -1,128 +1,152 @@
 # Ilumina
 
-Ilumina is a voice tutor that listens to how a student sounds, not only what they say, and changes how it teaches.
+**A voice tutor for math that adapts its hints and explanations to how a student sounds.**
 
-Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and Gemini for the thinking.
+Built at VexoHacks. Talk through a problem, point an optional camera at your work, and see the tutor’s latest reading and teaching move in the browser.
 
-## How it works
+[Run locally](#run-locally) · [How a turn works](#how-a-turn-works) · [Lecture capture](#lecture-capture) · [Hosting](docs/hosting.md) · [Changelog](CHANGELOG.md)
 
-- **Voice path.** Browser mic, Deepgram Flux speech to text and turn detection, a Gemini tutor model, Deepgram Aura-2 text to speech.
-- **Emotion path.** Each student turn is read three ways, and the voice counts most. Audio language models lean on the words when they hear both ([Chen et al. 2025](https://arxiv.org/abs/2510.10444)), so the voice and the words are scored apart:
-  - the *voice channel*: Gemini Decision 1 hears the audio with the measured pitch, loudness and timing, and no transcript;
-  - the *words channel*: Decision 1 reads the conversation and the transcript, with no audio;
-  - the *voice model*: a small word-blind classifier (`ilumina/voice_model.py`) that compares 48 acoustic measurements with this student's usual voice. It was trained on 10,224 acted clips from CREMA-D, EARS and RAVDESS (five emotions; CREMA-D's actors say the same neutral sentences in every emotion, so the model learns the sound of the voice, not the words). EARS and RAVDESS are licensed for non-commercial use only, so treat the model that way; see the docs to retrain on CREMA-D alone.
+![Ilumina dashboard showing speech measurements, an estimate of confusion, and the tutor choosing a smaller hint](docs/dashboard/mid-session.png)
 
-  Code joins them (`ilumina/fusion.py`), weighted toward the voice, into scores for confusion, frustration, confidence and engagement with a probability for every level, and a learning state: engaged, confused, frustrated, bored or neutral. The research, the test results and the weights are in [docs/emotion-research.md](docs/emotion-research.md).
-- **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, all the silence inside the answer, filler words, hedges such as "maybe" and how long the student waited before answering. The dashboard shows these numbers. The voice channel gets the timing, and the words channel gets the filler and hedge counts.
-- **Voice features.** From the turn's own audio Ilumina measures an eGeMAPS-style set of 48 features: pitch and its movement, loudness, voice quality (jitter, shimmer, harmonics-to-noise ratio), spectral balance and rhythm. The dashboard shows pitch, pitch range, whether the voice rises or falls at the end, and loudness. After three turns it also says which of these are clearly different from this student's usual, since people differ in how they normally speak.
-- **Mic meter.** Once a second the bot tells the dashboard how loud the microphone is, as speech to text gets it, and logs it every 5 seconds. A silent microphone shows as "Mic is silent".
-- **Where the conversation is.** A bar at the top of the dashboard says whose turn it is: "Your turn", "Hearing you" with the words heard so far, "Heard you" while the tutor thinks, and "Ilumina is speaking". It follows the bot's own events. In a loud room Deepgram Flux can wait a long time to be sure a turn is over, so "Done talking" switches the microphone to silence until the tutor answers, which ends the turn at once.
-- **State tracker.** Plain Python that keeps a probability for every level and folds in each turn's probabilities with Bayes' rule, so it always knows how sure it is. States persist differently (boredom lingers, frustration fades faster), and one-word turns count for less. A single odd turn is a blip. Two agreeing turns, or one very confident reading, is a trend. Confusion that lasts three turns is flagged, because brief confusion is part of learning and lasting confusion is not.
-- **Adaptation.** Before each reply the tutor gets a one-line state note. It waits at most 0.4 seconds for it, so voice never blocks on emotion.
-- **Camera path.** Optional. With the camera on, the newest frame is shown to the tutor with each student turn, replacing the one before it. Pictures are not saved, and with the camera off the tutor carries on by voice. The camera is the browser's by default. Start the bot with `ILUMINA_CAMERA=gopro` to use the head-worn GoPro from [`gopro/`](gopro/README.md) instead: the same "Turn camera on" button then starts the GoPro feed, and the panel shows the frame the tutor gets.
-- **Math on screen.** The tutor may add a `[show: ...]` tag with the equation it is talking about, in LaTeX. The tag is stripped before speech and drawn on the dashboard's board, so math is spoken in plain words and shown properly. Lecture notes and study plans write math in LaTeX too. KaTeX 0.16.11 is bundled in `dashboard/vendor/katex/`, so it works offline.
-- **Dashboard feed.** Every state update is sent to the browser as a `student_state` server message. Its fields are listed in [docs/emotion-research.md](docs/emotion-research.md#what-the-dashboard-receives).
+*Sample turn data replayed through the dashboard. It shows what was heard, how the turn was scored, and which teaching move the tutor selected. [Full dashboard view](docs/dashboard/desktop.png)*
 
-All readings are estimates of how the student sounds, not facts about how they feel.
+## What you can do
 
-## Run it
-
-You need Python 3.12 or newer and [uv](https://docs.astral.sh/uv/).
-
-```bash
-cp .env.example .env      # then add your Deepgram and Google keys
-uv sync
-uv run bot.py
-```
-
-Open http://localhost:7860/dashboard/, click Start session, and talk. Use earbuds so Ilumina does not hear itself.
-
-The dashboard reads left to right: what Deepgram measured on the last turn, how Ilumina read it, and the teaching move the tutor chose. Below that, every turn of the session is a column, with the tutor's move under it. It shows only what the bot sends: the reading for each turn, how sure the model was, the smoothed estimate, and the one-line note Ilumina was given. The plain Pipecat test client is still at http://localhost:7860/client.
-
-The first run downloads the voice activity model, so give it about 20 seconds.
-
-## Online demo
-
-The landing page, the dashboard and the bot are all hosted on Vercel: the landing page at
-`/`, the dashboard at `/app/` behind a passcode, and the bot as a Python function. Sessions
-there end after about 5 minutes (Vercel's function time limit), and the GoPro is local
-only. How it works and how to deploy: [docs/hosting.md](docs/hosting.md).
-
-## Lecture capture with Vexo (no band needed)
-
-Ilumina can listen to a class, remember it, and plan study from it. Sound goes through the
-[Vexo Open kit](https://github.com/VexoAI-Org/vexo-open-kit)'s band library (`vexo-open`):
-we have no band, so the Mac's microphone stands in for the band's microphone. Its sound is
-turned into the band's own format (Opus, 16 kHz, 20 ms packets) and played by Vexo's pretend
-band through the real Vexo protocol. With a band, add `--band 42` (your band's number) and
-the same code listens to the band over Bluetooth.
-
-```bash
-uv run lecture.py record              # Mac mic; press Ctrl+C when the lecture ends
-uv run lecture.py record --file class.m4a   # or a recording (plays at real speed)
-uv run lecture.py record --text class.txt   # or a transcript you already have (skips the band and Deepgram)
-uv run lecture.py plan                # a 3-day study plan from what Ilumina remembers
-uv run lecture.py show                # what Ilumina remembers
-uv run lecture.py forget              # delete it all
-```
-
-After a recording: Deepgram turns the sound into text, Gemini writes study notes (key ideas,
-likely sticking points, check questions), and you are asked whether to save them. **Nothing
-is saved on your computer unless you say yes.** The sound does go to Deepgram, and the text
-to Google Gemini, before you are asked. Saved lectures go to the local `memory/` folder (never in
-git), and the tutor is told about them at the start of the next session: it opens from the
-most recent class, and the dashboard shows the classes it remembers and the study plan. With
-`ILUMINA_MEMORY=on` in `.env`, the tutor also saves the moments a student sounded confused
-or frustrated, and `plan` puts those first. The first time, macOS asks to let Terminal use
-the microphone: click Allow.
-
-## Settings
-
-All in `.env`:
-
-| Name | What it does |
+| During a tutoring session | Between sessions |
 | --- | --- |
-| `DEEPGRAM_API_KEY` | Deepgram speech to text and text to speech |
-| `DEEPGRAM_VOICE_ID` | Aura-2 voice, default `aura-2-helena-en` |
-| `GOOGLE_API_KEY` | Google AI Studio key |
-| `GOOGLE_MODEL` | Tutor brain, default `gemini-4-hydrogen` (first words in about 1.5 s). `gemini-4-argon` thinks deeper but took over 4 s |
-| `DECISION_MODEL` | Emotion scoring, default `gemini-decision-1` |
-| `ILUMINA_CAMERA` | `browser` (default) or `gopro` for the head-worn GoPro over USB. Needs FFmpeg (`brew install ffmpeg`) |
-| `GOPRO_IP` | Only if the GoPro is not found by itself |
-| `ILUMINA_SESSION_SECONDS` | Hosted only: how long a session may last before the dashboard ends it. Default `0`, no limit |
-| `ILUMINA_MEMORY` | `on` saves the hard moments of each tutoring session to `memory/`. Default `off` |
+| **Work through math aloud.** Ilumina can give a smaller hint, try another explanation, or raise the difficulty. The dashboard can show its equations alongside the spoken reply. | **Capture a lecture.** Use a microphone, a recording, a Vexo band, or an existing transcript. Gemini turns the transcript into study notes. |
+| **Show your work.** Point the browser camera or a local GoPro at a worksheet so the tutor can refer to a recent frame. | **Pick up where you left off.** Start a session from saved class notes, or generate a study plan from the notes and excerpts. |
 
-## Layout
+## Run locally
 
-| File | Job |
-| --- | --- |
-| `bot.py` | The Pipecat pipeline and wiring |
-| `ilumina/emotion.py` | Decision 1 rubrics and the two scoring calls: the voice channel (audio, no words) and the words channel (words, no audio) |
-| `ilumina/acoustic.py` | The 48 acoustic features of one turn, in numpy: pitch, loudness, voice quality, spectral balance, rhythm |
-| `ilumina/voice_model.py` | The word-blind voice model: reads the acoustic features against this student's usual voice. Its weights are `voice_model.json` |
-| `ilumina/fusion.py` | Joins the voice channel, the words channel and the voice model into one reading per turn |
-| `ilumina/evidence.py` | Pace, pauses, silence, fillers, hedges and wait for one turn, from Deepgram's word timings |
-| `ilumina/prosody.py` | The dashboard's pitch, pitch range, end rise or fall, and loudness for one turn |
-| `ilumina/baseline.py` | This student's usual voice over the session, and how each turn differs from it |
-| `ilumina/measured.py` | Puts a turn's measurements together for each channel and decides how much the turn counts |
-| `ilumina/state.py` | State and learning-state trackers, no model calls, reusable outside tutoring |
-| `ilumina/headcam.py` | Runs the GoPro feed while the student has the camera on, and hands out its newest frame |
-| `ilumina/processors.py` | Measures each turn's voice evidence, hands the camera picture and the state note to the tutor before each reply, and reads its teaching move after |
-| `ilumina/prompts.py` | Ilumina's persona and teaching rules |
-| `ilumina/config.py` | Keys and model IDs from the environment |
-| `lecture.py` | Record a lecture, make a study plan, show or delete memory |
-| `ilumina/vexo_band.py` | Mic or file to band packets, through the Vexo band library |
-| `ilumina/transcribe.py` | A recorded lecture to text with Deepgram |
-| `ilumina/memory.py` | Lecture notes, opt-in memory, the tutor's memory note, study plans |
-| `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0, `@pipecat-ai/small-webrtc-transport` 1.11.2 and `@pipecat-ai/websocket-transport` 1.8.2 bundled with esbuild 0.25.0 |
-| `api/bot.py` | The hosted bot: a Vercel Function that checks the passcode and runs `bot.py` over a WebSocket |
-| `deploy/vercel/` | Files uploaded with each Vercel deployment; see [docs/hosting.md](docs/hosting.md) |
-| `scripts/train_voice_model.py` | Downloads CREMA-D, tests the voice model on speakers and datasets it never heard, and writes `voice_model.json` |
-| `scripts/fetch_extra_speech.py` | Fetches the EARS and RAVDESS clips (five emotions) the model also trains on. Needs FFmpeg |
-| `scripts/eval_voice_channel.py` | Measures how much each Decision 1 channel hears the voice, on clips whose words carry no emotion. Needs `GOOGLE_API_KEY` |
-
-## Tests
+Use Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), a browser with microphone access, and internet access for Deepgram and Google Gemini.
 
 ```bash
-uv run pytest
+git clone https://github.com/MeagerPotato/ilumina.git
+cd ilumina
+cp .env.example .env
 ```
+
+Fill in `DEEPGRAM_API_KEY` and `GOOGLE_API_KEY` in `.env`. The Google key needs access to both the tutor model and the Decisions API for scoring.
+
+```bash
+uv sync --locked --python 3.12
+uv run --locked bot.py
+```
+
+1. Open [the Ilumina dashboard](http://localhost:7860/dashboard/), select **Start session**, and allow microphone access. Headphones help keep the tutor’s audio out of your microphone.
+2. Say “I’m solving two x plus three equals eleven,” then try the tutor’s next step aloud. **Heard** shows speech measurements, **Read** shows the latest estimate, and **Adapted** shows the teaching move. Use **Done talking** to end your turn manually.
+3. To share your work, select **Turn camera on** and point it at the page before your next turn. Select **End session** when you’re done.
+
+The runner also serves the [Pipecat test client](http://localhost:7860/client/).
+
+### Configuration
+
+Copy values into `.env` using the [example file](.env.example).
+
+| Setting | Purpose | Default |
+| --- | --- | --- |
+| `DEEPGRAM_API_KEY` | Live transcription and speech synthesis, plus lecture transcription | Required for voice and lecture capture |
+| `GOOGLE_API_KEY` | Tutor replies, Decisions scoring, lecture notes, and study plans | Required for model calls |
+| `GOOGLE_MODEL` | Gemini model for tutoring and lecture tools | `gemini-4-hydrogen` |
+| `DECISION_MODEL` | Gemini model for rubric scoring via the Decisions API | `gemini-decision-1` |
+| `DEEPGRAM_VOICE_ID` | Deepgram Aura-2 voice | `aura-2-helena-en` |
+| `ILUMINA_CAMERA` | Source for the tutor’s camera. Use `gopro` for a local USB GoPro. | `browser` |
+| `GOPRO_IP` | Override automatic GoPro discovery | Automatic |
+| `ILUMINA_SESSION_SECONDS` | Session time limit in seconds, used by the hosted dashboard | `0` (unlimited) |
+| `ILUMINA_MEMORY` | Save short excerpts from turns flagged for high confusion or frustration when a session disconnects | `off` |
+
+## How a turn works
+
+```mermaid
+flowchart LR
+    subgraph Inputs["Local inputs"]
+        Mic["Microphone"]
+        Cam["Browser camera or GoPro"]
+    end
+
+    subgraph Turn["Pipecat · Prepare the reply"]
+        Flux["Deepgram Flux<br/>Live transcript"]
+        State["Gemini Decisions + voice model<br/>Fusion and state tracking"]
+        Context["Reply context"]
+        Flux --> Context
+        State --> Context
+    end
+
+    Mic --> Flux
+    Mic --> State
+    Flux --> State
+    Cam --> Context
+    Context --> Tutor["Gemini tutor<br/>Move and equation parser"]
+    Tutor --> Aura["Deepgram Aura-2<br/>Spoken reply"]
+    State -. State .-> UI["Browser dashboard"]
+    Tutor -. Teaching move .-> UI
+```
+
+1. [`bot.py`](bot.py) connects the local browser over SmallWebRTC and streams audio to Deepgram Flux. Flux returns the transcript and word timings.
+2. [`emotion.py`](ilumina/emotion.py) scores the spoken audio and transcript separately through Gemini Decisions. In parallel with the tutoring flow, [`measured.py`](ilumina/measured.py) measures pace, pauses, pitch, and other acoustic features. A local voice model uses acoustic features to compare the turn with the speaker’s baseline.
+3. [`fusion.py`](ilumina/fusion.py) combines the available channels, and [`state.py`](ilumina/state.py) updates the probabilities for confusion, frustration, confidence, engagement, and the overall learning state. The dashboard receives the raw reading, trend, and measurements in a `student_state` event.
+4. [`processors.py`](ilumina/processors.py) adds a recent camera image when available and waits up to 400 ms for a fresh state note. On timeout, the reply proceeds with the existing context.
+5. Gemini streams a reply guided by the [tutor prompt](ilumina/prompts.py). The parser sends the teaching move and optional LaTeX equation to the dashboard, then Deepgram Aura-2 speaks the reply text.
+
+### Engineering decisions
+
+| Decision | How it works and what it costs |
+| --- | --- |
+| **Score voice and words separately.** | The voice request uses audio and measured features. The words request uses transcript and conversation text. Fusion weights the voice more heavily and can use the available channels if one fails. The split adds a second provider request when text is available. |
+| **Keep the trend separate from the latest reading.** | The Bayesian tracker folds in each turn’s evidence and uses different persistence for each state. Very short turns count less, and short spikes may stay classified as blips. This limits abrupt changes, at the cost of sometimes taking another turn to reflect a shift. |
+| **Give the tutor a scoring deadline.** | The 400 ms wait bounds the delay the state injector adds to a reply. A late reading can still appear in the dashboard after the tutor has started replying. |
+| **Keep the camera context to one frame.** | Pipecat requests roughly one frame per second. A context processor replaces the prior image and skips frames over two seconds old. This keeps the image context small, while the tutor can only see what was visible in the selected still. |
+
+The research notes document the score weights, voice-model evaluation, and dashboard event fields. They also explain the non-commercial terms that apply to the bundled voice model’s training data. [Emotion research notes](docs/emotion-research.md)
+
+## Lecture capture
+
+On macOS, the first microphone recording may prompt you to give Terminal microphone access. For a lecture with other people, let them know before recording.
+
+```bash
+uv run --locked lecture.py record                         # Computer mic. Press Ctrl+C to finish.
+uv run --locked lecture.py record --file class.m4a        # Replay an existing recording.
+uv run --locked lecture.py record --band 42               # Use your Vexo band number.
+uv run --locked lecture.py record --text class.txt        # Use an existing transcript.
+uv run --locked lecture.py show                           # Inspect saved lecture and session context.
+uv run --locked lecture.py plan --days 3                  # Generate a plan from saved memory.
+```
+
+[`vexo_band.py`](ilumina/vexo_band.py) encodes microphone or file audio into 16 kHz mono Opus packets and feeds them through Vexo Open’s simulated band transport. A real band supplies packets over Bluetooth to the same decoder. [`transcribe.py`](ilumina/transcribe.py) sends the audio to Deepgram Nova-3, then [`memory.py`](ilumina/memory.py) asks Gemini for notes, likely sticking points, and check questions. `--text` sends an existing transcript directly to Gemini.
+
+The save prompt controls **local** storage. Deepgram receives the lecture audio and Gemini receives its transcript before the prompt. Accept the prompt or pass `--save` to store the transcript and notes under `memory/`. A study plan is written to `memory/study-plan.md`. Run `uv run --locked lecture.py forget` and confirm to delete this local memory.
+
+### GoPro preview
+
+The [GoPro LIT HERO utility](gopro/README.md) controls the USB preview over Open GoPro HTTP and uses FFmpeg to decode the stream. Run the utility for a standalone preview, or set `ILUMINA_CAMERA=gopro` in `.env`, restart the local bot, and use the dashboard’s camera button to share the GoPro feed with the tutor.
+
+## Hosted demo setup
+
+The Vercel configuration serves the landing page at `/`, the dashboard at `/app/`, and the Python bot at `/api/bot`. Starting a hosted session requires a passcode. Sessions run over a WebSocket with optional camera stills and a configurable time limit. See the [hosting guide](docs/hosting.md) for deployment and configuration.
+
+## Source and checks
+
+| Path | Responsibility |
+| --- | --- |
+| [`bot.py`](bot.py) | Pipecat pipeline, WebRTC transport, and session events |
+| [`ilumina/`](ilumina/) | Rubrics, state tracking, camera and text processors, prompts, lecture input, and local memory |
+| [`dashboard/`](dashboard/) | HTML and JavaScript UI with bundled Pipecat transports and KaTeX |
+| [`lecture.py`](lecture.py) | Record, inspect, plan from, and delete lecture and tutoring memory |
+| [`gopro/`](gopro/) | GoPro preview feed and software camera fixture |
+| [`landing/`](landing/) and [`deploy/vercel/`](deploy/vercel/) | Landing page and hosted demo packaging |
+| [`scripts/`](scripts/) | Voice-model training and evaluation |
+| [`tests/`](tests/) | Scoring, state, audio, camera, teaching tags, lecture capture, and memory regression tests |
+
+```bash
+uv sync --locked --python 3.12
+uv run --locked pytest -q
+```
+
+The tests exercise the Vexo simulator and use test doubles for cloud calls. See the [software camera check](gopro/README.md#testing-without-the-camera) for checking USB-preview decoding without a GoPro.
+
+## Project status
+
+Ilumina is a hackathon prototype. Voice readings are model estimates of how speech sounds. Sessions send audio to Deepgram for transcription, and separate audio and text requests to Google for scoring. The Gemini tutor receives conversation context and selected camera images when the camera is enabled. Local tutoring memory is opt-in.
+
+The repository currently has no license file. Ask the maintainers about reuse terms.
