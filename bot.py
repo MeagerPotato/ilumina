@@ -22,6 +22,7 @@ Run with:  uv run bot.py   then open http://localhost:7860/dashboard/
 """
 
 import asyncio
+import base64
 import os
 import time
 from pathlib import Path
@@ -54,6 +55,7 @@ from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
+from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.google.llm import GoogleLLMService
@@ -62,6 +64,7 @@ from pipecat.transports.base_transport import (
     TransportParams,
     VideoInSourceParams,
 )
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from pipecat.workers.runner import WorkerRunner
 
 from ilumina import config, memory
@@ -344,6 +347,17 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     if band_link:
         band_link.start(from_band)
 
+    @worker.rtvi.event_handler("on_client_message")
+    async def on_camera_frame(rtvi, message):
+        # The hosted dashboard sends its camera as one JPEG a second (WebSockets carry no video).
+        if message.type != "camera_frame" or not isinstance(message.data, dict):
+            return
+        try:
+            jpeg = base64.b64decode(message.data.get("jpeg", ""), validate=True)
+            await asyncio.to_thread(camera_view.take_jpeg, jpeg)
+        except Exception as e:  # noqa: BLE001 - a bad frame must not stop the voice loop
+            logger.warning(f"Camera frame from the dashboard was unreadable: {e}")
+
     @worker.rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
         # Tell the dashboard which models this session is really running on.
@@ -359,6 +373,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "no_class_to_review": asked_for_review and not review,
                     # With the setting on, hard moments are saved without a question.
                     "saves_without_asking": config.SAVE_MEMORY,
+                    # Hosted sessions end at the function's time limit; 0 means no limit.
+                    "limit_seconds": config.SESSION_SECONDS,
                 }
             )
         )
@@ -378,7 +394,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         await worker.queue_frames([LLMRunFrame()])
 
     @worker.rtvi.event_handler("on_client_message")
-    async def on_client_message(rtvi, message):
+    async def on_save_session(rtvi, message):
         # The dashboard asks the student before a session ends. Only a yes arrives here.
         if message.type != "save_session":
             return
@@ -411,6 +427,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
 async def bot(runner_args: RunnerArguments):
     """Entry point used by the Pipecat runner."""
+    # Local runs (uv run bot.py) use peer-to-peer WebRTC. The hosted app runs in a
+    # Vercel Function (api/bot.py) and talks to the browser over a WebSocket, which
+    # carries audio; the camera arrives as stills (on_client_message). See docs/hosting.md.
     transport_params = {
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
@@ -418,6 +437,13 @@ async def bot(runner_args: RunnerArguments):
             # One camera frame a second is plenty: only the newest is shown to the tutor.
             video_in_enabled=True,
             video_in_sources={"camera": VideoInSourceParams(framerate=1)},
+        ),
+        "websocket": lambda: FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            # The dashboard plays 24 kHz audio; Pipecat resamples the tutor's voice to it.
+            audio_out_sample_rate=24000,
+            serializer=ProtobufFrameSerializer(),
         ),
     }
     transport = await create_transport(runner_args, transport_params)

@@ -98,7 +98,7 @@ def test_the_picture_is_sent_only_when_there_is_one():
 def test_the_camera_picture_becomes_a_jpeg():
     view = CameraView()
     assert view.jpeg() is None  # camera off
-    view._latest = SimpleNamespace(image=bytes(4 * 4 * 3), size=(4, 4), format="RGB")
+    view._latest = ("RGB", (4, 4), bytes(4 * 4 * 3))
     view._latest_at = time.monotonic()
     assert view.jpeg()[:2] == b"\xff\xd8"
 
