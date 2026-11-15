@@ -658,7 +658,23 @@ function listCameras(cams) {
   pick.replaceChildren(...cams.map((cam, i) => new Option(cam.label || `Camera ${i + 1}`, cam.deviceId)));
   const current = client?.selectedCam?.deviceId;
   if (current) pick.value = current;
-  pick.hidden = $("cam-video").hidden || cams.length < 2;
+  // Shown even with one camera, so a missing GoPro is plain to see.
+  pick.hidden = $("cam-video").hidden || !cams.length;
+}
+
+// The camera picked last time is used again; the first time, a GoPro is picked if
+// the browser already names one (it names cameras only after it was allowed once).
+const CAM_KEY = "ilumina.camera";
+function saveCam(id) { try { localStorage.setItem(CAM_KEY, id); } catch {} }
+async function videoInputs() {
+  return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+}
+async function preferredCam() {
+  const cams = await videoInputs().catch(() => []);
+  let saved = "";
+  try { saved = localStorage.getItem(CAM_KEY) || ""; } catch {}
+  if (cams.some((c) => c.deviceId === saved)) return saved;
+  return cams.find((c) => /gopro/i.test(c.label))?.deviceId || "";
 }
 
 function resetCamera(message) {
@@ -697,6 +713,8 @@ async function setHostedCam(on, deviceId) {
     hostedCam = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 1280 } } });
   } catch (e) {
     console.error(e);
+    // A camera that was unplugged or is busy: fall back to the browser's own choice.
+    if (deviceId && e?.name !== "NotAllowedError") return setHostedCam(true);
     return resetCamera(e?.name === "NotAllowedError"
       ? "The browser blocked the camera. Allow it in the address bar, then try again."
       : "The camera could not be turned on. Ilumina carries on by voice.");
@@ -705,9 +723,14 @@ async function setHostedCam(on, deviceId) {
   showCamera(hostedCam.getVideoTracks()[0]);
   $("cam-seen").textContent = "Camera is on. Ilumina gets a picture when you next speak.";
   stillTimer = setInterval(sendStill, 1000);
-  const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-  listCameras(cams);
-  const current = hostedCam.getVideoTracks()[0]?.getSettings().deviceId;
+  await listHostedCams();
+  if (![...$("cam-pick").options].some((o) => /gopro/i.test(o.text))) {
+    $("cam-seen").textContent += " To use a GoPro, turn on its webcam mode and it shows up in the list.";
+  }
+}
+async function listHostedCams() {
+  listCameras(await videoInputs());
+  const current = hostedCam?.getVideoTracks()[0]?.getSettings().deviceId;
   if (current) $("cam-pick").value = current;
 }
 
@@ -749,7 +772,7 @@ function setHeadcam(on) {
 function toggleCamera() {
   if (!client) return;
   if (headcam) return setHeadcam(!headcamTimer);
-  if (HOSTED) return setHostedCam(!hostedCam);
+  if (HOSTED) return hostedCam ? setHostedCam(false) : preferredCam().then((id) => setHostedCam(true, id));
   const on = !client.isCamEnabled;
   client.enableCam(on);
   if (on) {
@@ -904,5 +927,13 @@ $("talk").addEventListener("contextmenu", (e) => e.preventDefault());
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
-$("cam-pick").addEventListener("change", (e) => HOSTED ? setHostedCam(true, e.target.value) : client?.updateCam(e.target.value));
+$("cam-pick").addEventListener("change", (e) => {
+  saveCam(e.target.value);
+  HOSTED ? setHostedCam(true, e.target.value) : client?.updateCam(e.target.value);
+});
+// A GoPro plugged in (or unplugged) while the camera is on shows up in the list.
+navigator.mediaDevices?.addEventListener("devicechange", () => {
+  if (hostedCam) listHostedCams().catch(console.error);
+  else if (client?.isCamEnabled) client.getAllCams().then(listCameras).catch(console.error);
+});
 window.ilumina = { receive, pressTalk, releaseTalk, setPtt, showCamera, setHeadcam, stageEvents, hearing, addLine, startWave }; // lets checks feed recorded messages and a camera track
