@@ -547,6 +547,21 @@ function toggleCamera() {
 let client;
 const shownSegments = new Set();
 
+// The parts of the page that fill up during a session, as they look before one. Every new
+// session starts from them, so nothing of the last one stays on screen: not its board, its
+// timeline, its readings or its conversation.
+const FRESH = [".loop", ".card.work", "#trace", "#lines", "#memory"].map((part) => {
+  const el = document.querySelector(part);
+  return [el, el.innerHTML];
+});
+function clearSession() {
+  for (const [el, html] of FRESH) el.innerHTML = html;
+  history.length = moves.length = 0;
+  shownSegments.clear();
+  hardMoments = 0;
+  $("tip").hidden = $("problem").hidden = true;
+}
+
 // The two kinds of session. The choice is sent to the bot when the session starts.
 const MODE_HINT = {
   homework: "Homework: bring a problem. Ilumina reads your page and helps you through it.",
@@ -610,6 +625,7 @@ async function toggle() {
   button.disabled = true;
   $("mode").disabled = true;
   askedMode = pickedMode();
+  clearSession();
   $("status").textContent = "Connecting";
   client = new PipecatClient({
     transport: new SmallWebRTCTransport(),

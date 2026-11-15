@@ -158,6 +158,13 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         except Exception as e:  # noqa: BLE001 - a session still starts, as homework
             logger.warning(f"Could not read the class to review: {e}")
     mode_note = review_note(review) if review else HOMEWORK_NOTE
+    if review:
+        # A review is about that one class and starts fresh: nothing from earlier
+        # sessions or other classes reaches the tutor or the "Remembers" card.
+        memory_note = ""
+        if remembered:
+            newest = remembered.get("lectures", [])[-1:]
+            remembered = {"lectures": newest, "hard_moments": 0, "plan": ""}
     logger.info(f"Session mode: {'review' if review else 'homework'}")
 
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
