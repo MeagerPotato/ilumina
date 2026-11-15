@@ -2,8 +2,9 @@
 
 Nothing is saved on this computer unless the student says yes. (The sound always goes to
 Deepgram for text, and the text to Google Gemini for notes, before the student is asked.) Lectures are saved only after the student
-agrees at the end of `lecture.py record` (or passes --save). Tutoring sessions are saved
-only when ILUMINA_MEMORY=on is set in .env. Everything stays in the local `memory/`
+agrees at the end of `lecture.py record` (or passes --save). The hard moments of a
+tutoring session are saved only when the student says yes on the dashboard as the session
+ends, or when ILUMINA_MEMORY=on is set in .env. Everything stays in the local `memory/`
 folder (not in git); `uv run lecture.py forget` deletes it all.
 """
 
@@ -174,6 +175,36 @@ def tutor_note(root: Path = MEMORY_DIR, limit: int = 3) -> str:
                 f"{str(moment.get('said', ''))[:200]}"
             )
     return "\n".join(lines)
+
+
+def review_material(root: Path = MEMORY_DIR, max_chars: int = 60_000) -> dict | None:
+    """The newest class in full, for a lecture review session: its title (empty when the
+    class has none), the notes, the transcript, and whether the transcript was cut.
+    None when no class is saved."""
+    lectures = load("lectures", root=root)  # all of them, so a damaged newest file is skipped
+    if not lectures:
+        return None
+    n = lectures[-1].get("notes") or {}
+    lines = [n.get("summary", "")]
+    lines += [
+        f"- {c.get('name', '')}: {c.get('explanation', '')}" for c in n.get("key_concepts", [])
+    ]
+    for label, key in (
+        ("Formulas", "formulas"),
+        ("Likely sticking points", "likely_confusions"),
+        ("Questions you can ask", "check_questions"),
+    ):
+        if n.get(key):
+            lines.append(f"{label}: {'; '.join(n[key])}")
+    title = n.get("title", "")
+    transcript = str(lectures[-1].get("transcript", ""))
+    return {
+        "title": "" if title == empty_notes()["title"] else title,
+        "notes": "\n".join(filter(None, lines)),
+        # A long class is cut so that a spoken reply still starts quickly.
+        "transcript": transcript[:max_chars],
+        "cut": len(transcript) > max_chars,
+    }
 
 
 def overview(root: Path = MEMORY_DIR, limit: int = 3) -> dict:

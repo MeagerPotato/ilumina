@@ -1,14 +1,15 @@
-"""Lecture audio through the Vexo Open band library, with or without a band.
+"""Lecture audio through the Vexo Open band library, with a real band or without one.
 
-The band sends its microphone as Opus packets (16 kHz mono, 20 ms each). We have no band,
-so the Mac's microphone (or a sound file) stands in for the band's microphone: its sound
-is turned into the same Opus packets and handed to Vexo's own pretend band
-(`SimTransport`), which plays them on its `audio` stream through the real Vexo protocol.
-Everything after that is the code a real band uses. With a band, pass its number and the
-same code listens to the band's microphone instead.
+The band sends its microphone as Opus packets (16 kHz mono, 20 ms each). With a band,
+pass its number (Bluetooth) or usb=True (the cable) and this listens to the band's own
+microphone. Without one, or when the band cannot be reached, the Mac's microphone (or a
+sound file) stands in: its sound is turned into the same Opus packets and handed to Vexo's
+own pretend band (`SimTransport`), which plays them on its `audio` stream through the real
+Vexo protocol. Everything after that is the same code either way.
 
-    pcm = record(source=mic_packets(), seconds=60)        # Mac mic as the band's mic
     pcm = record(band_number=42, seconds=60)              # a real Vexo band over Bluetooth
+    pcm = record(usb=True, seconds=60)                    # a real Vexo band on the USB cable
+    pcm = record(source=mic_packets(), seconds=60)        # Mac mic as the band's mic
 """
 
 from __future__ import annotations
@@ -116,6 +117,7 @@ def record(
     source: Iterable[bytes] | None = None,
     seconds: float | None = None,
     band_number: int | None = None,
+    usb: bool = False,
     on_progress=None,
     stop: threading.Event | None = None,
 ) -> bytes:
@@ -123,19 +125,21 @@ def record(
 
     source: band packets to play through Vexo's pretend band (mic_packets() or
     file_packets()). band_number instead: a real band over Bluetooth, its own microphone.
+    usb=True: a real band on the USB cable (no number needed, no double tap).
     Stops after `seconds`, when the source ends, when `stop` is set, or on Ctrl+C.
     """
     stop = stop or threading.Event()
     packets = None
-    if band_number is None and source is not None:
+    real = band_number is not None or usb
+    if not real and source is not None:
         # Start the source here, so a microphone that cannot open fails now, not silently
         # inside the feeding thread.
         packets = iter(source)
         first = next(packets, None)
         packets = itertools.chain([] if first is None else [first], packets)
 
-    if band_number is not None:
-        band = Band.connect(band_number)
+    if real:
+        band = Band.connect(band_number, **({"transport": "serial"} if usb else {}))
     else:
         band = Band.connect(PRETEND_BAND, transport=SimTransport(PRETEND_BAND, auto_tap=False))
 
@@ -144,7 +148,11 @@ def record(
     band.on("audio", lambda a: pcm.extend(decoder.feed(a)))
     # A real band's light goes solid blue: the microphone is on. On the pretend band the
     # mic-level stream also takes up the loudness curves that go with each batch.
-    band.configure(audio=True, mic_level=band_number is None)
+    try:
+        band.configure(audio=True, mic_level=not real)
+    except Exception:
+        band.disconnect()  # do not hold on to a band whose microphone would not start
+        raise
 
     sent = [0]  # packets handed to the pretend band
     finished = threading.Event()
@@ -211,9 +219,13 @@ def record(
                 band.wait(queued_seconds())  # let the last queued sound arrive
         if old_handler is not None:
             signal.signal(signal.SIGINT, old_handler)
-        if band.connected:
-            band.configure(audio=False, mic_level=False)
-        band.disconnect()
+        # A band that went out of reach at the very end must not cost the recording.
+        try:
+            if band.connected:
+                band.configure(audio=False, mic_level=False)
+            band.disconnect()
+        except Exception as e:  # noqa: BLE001
+            print(f"\nThe band did not switch off cleanly ({e}). The recording is kept.")
     if failure:
         raise RuntimeError(f"The sound source stopped: {failure[0]}") from failure[0]
     return bytes(pcm) + decoder.flush()

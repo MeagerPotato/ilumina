@@ -20,6 +20,8 @@ from pipecat.frames.frames import (
     ProposedUserStartedSpeakingFrame,
     TranscriptionFrame,
     UserImageRawFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
@@ -27,6 +29,7 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from ilumina.evidence import voice_evidence
 from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
+from ilumina.workcheck import describe as describe_check
 
 # A camera frame older than this is not shown to the tutor (camera off or stalled).
 # Frames arrive about a second apart, so this allows for one late frame.
@@ -104,6 +107,16 @@ class CameraView(FrameProcessor):
         image = image.convert("RGB")
         self._latest = ("RGB", image.size, image.tobytes())
         self._latest_at = time.monotonic()
+
+    def jpeg(self) -> bytes | None:
+        """The current picture as a JPEG for the work check, or None. Nothing is saved."""
+        picture = self._newest()
+        if picture is None:
+            return None
+        format, size, image = picture
+        out = io.BytesIO()
+        Image.frombytes(format, size, image).convert("RGB").save(out, "JPEG", quality=80)
+        return out.getvalue()
 
     async def _show(self, context) -> bool:
         picture = self._newest()
@@ -228,30 +241,148 @@ class StudentStateInjector(FrameProcessor):
     turn's emotion reading, then adds a one-line state note to the context.
     If the reading is late or missing, the tutor answers without a new note,
     so voice never blocks on emotion.
+
+    With `work_check_wait_seconds`, it waits that long, at the same time, for the
+    check of the student's work, and adds its note too. A check that comes too late
+    for its own turn is given with the next one and says so.
     """
 
-    def __init__(self, wait_seconds: float, **kwargs):
+    def __init__(self, wait_seconds: float, work_check_wait_seconds: float = 0, **kwargs):
         super().__init__(**kwargs)
         self._wait_seconds = wait_seconds
         self._fresh = asyncio.Event()
         self._snapshot: dict | None = None
+        self._work_wait_seconds = work_check_wait_seconds
+        self._work_fresh = asyncio.Event()
+        self._work: tuple[float, dict] | None = None  # (when the check started, the check)
+        self._answered_at = 0.0  # when the last student turn went on to the tutor
 
     def set_snapshot(self, snapshot: dict):
         self._snapshot = snapshot
         self._fresh.set()
 
+    def set_work_check(self, check: dict, started: float):
+        """`started` is time.monotonic() from when the check of that turn began."""
+        if self._work and started < self._work[0]:
+            return  # an older turn's check that finished after a newer one
+        self._work = (started, check)
+        if started > self._answered_at:
+            self._work_fresh.set()
+
+    async def _wait_for_notes(self):
+        async def within(event: asyncio.Event, seconds: float):
+            try:
+                await asyncio.wait_for(event.wait(), seconds)
+            except TimeoutError:
+                pass
+
+        waits = [within(self._fresh, self._wait_seconds)]
+        if self._work_wait_seconds:
+            if not (self._work and self._work[0] > self._answered_at):
+                self._work_fresh.clear()  # what is here, if anything, is an earlier turn's
+            waits.append(within(self._work_fresh, self._work_wait_seconds))
+        await asyncio.gather(*waits)
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if _answers_student(frame):
-            try:
-                await asyncio.wait_for(self._fresh.wait(), self._wait_seconds)
-            except TimeoutError:
-                pass
+            await self._wait_for_notes()
             if self._fresh.is_set() and self._snapshot:
                 frame.context.add_message(
                     {"role": "developer", "content": describe(self._snapshot)}
                 )
                 self._fresh.clear()
+            await self._add_work_check(frame.context)
+            self._answered_at = time.monotonic()
+        await self.push_frame(frame, direction)
+
+    async def _add_work_check(self, context):
+        if self._work is None:
+            return
+        (started, check), self._work = self._work, None
+        which = "newest" if started > self._answered_at else "previous"
+        note = describe_check(check, which)
+        if not note:
+            return  # there was no step to check, so the tutor is told nothing
+        context.add_message({"role": "developer", "content": note})
+        logger.info(f"Work check given to the tutor, about the {which} turn")
+        # So the dashboard can say whether the tutor had the check before it answered.
+        await self.push_frame(
+            RTVIServerMessageFrame(data={"type": "work_check_told", "which": which})
+        )
+
+
+# A microphone the student paused on the dashboard sends samples no louder than this, for
+# at least this many pieces in a row (100 ms). A shorter dip is only a quiet moment.
+_PAUSED_PEAK = 4
+_PAUSED_PIECES = 5
+_BAND_RATE = 16000  # the band's sound: 16 kHz, one channel
+
+
+class BandMic(FrameProcessor):
+    """Sits right after the transport input. While the student's Vexo band is the
+    microphone, each piece of the computer's sound is swapped for the same length of the
+    band's sound, so everything after it hears the band: speech to text, the meter, the
+    emotion reading.
+
+    The computer's sound stays in charge of time, and of two things more. When the band's
+    sound is not arriving, the computer's passes through untouched, so a band that drops
+    out costs nothing. And when the student pauses the microphone on the dashboard ("Done
+    talking"), the computer sends silence, and silence is what goes on.
+    """
+
+    def __init__(self, link, **kwargs):
+        super().__init__(**kwargs)
+        self._link = link
+        self._quiet_pieces = 0
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if (
+            isinstance(frame, InputAudioRawFrame)
+            and frame.audio
+            and frame.sample_rate == _BAND_RATE
+            and frame.num_channels == 1
+        ):
+            try:
+                samples = np.frombuffer(frame.audio, dtype=np.int16)
+                quiet = int(np.abs(samples.astype(np.int32)).max()) <= _PAUSED_PEAK
+                self._quiet_pieces = self._quiet_pieces + 1 if quiet else 0
+                # Taken even while paused, so the band's sound never piles up and runs late.
+                sound = self._link.sound(len(frame.audio))
+                if sound is not None and self._quiet_pieces < _PAUSED_PIECES:
+                    frame.audio = sound
+            except Exception as e:  # noqa: BLE001 - the computer's sound goes on instead
+                logger.debug(f"Band sound not used for this piece: {e}")
+        await self.push_frame(frame, direction)
+
+
+class BandLight(FrameProcessor):
+    """Sits right after the user aggregator and shows the stage of the turn on the
+    student's Vexo band: your turn, hearing you, heard you, the tutor is speaking.
+
+    It only tells the band link which light is wanted, which returns at once. Every
+    frame passes through untouched.
+    """
+
+    def __init__(self, link, **kwargs):
+        super().__init__(**kwargs)
+        self._link = link
+        self._student_speaking = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, UserStartedSpeakingFrame):
+            self._student_speaking = True
+            self._link.show("hearing")
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            self._student_speaking = False
+            self._link.show("thinking")
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            self._link.show("speaking")
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            # After the student cut in, the turn is still theirs.
+            self._link.show("hearing" if self._student_speaking else "listening")
         await self.push_frame(frame, direction)
 
 

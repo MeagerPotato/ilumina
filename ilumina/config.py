@@ -23,6 +23,24 @@ GOPRO_IP = os.getenv("GOPRO_IP") or None
 # just ended. After that it answers with the last known state.
 STATE_WAIT_SECONDS = 0.4
 
+# The student's Vexo band in a tutoring session: its number for Bluetooth, such as 42,
+# or "usb" for the cable. A double tap means "done talking" and the light shows whose turn
+# it is. Left unset, sessions run without a band.
+BAND = (os.getenv("ILUMINA_BAND") or "").strip().lower()
+BAND_USB = BAND == "usb"
+BAND_NUMBER = int(BAND) if BAND.isdigit() else None
+# Whether the band is also the session's microphone, live. The dashboard can switch this
+# during a session. Whenever the band's sound is not arriving, the computer's is used.
+BAND_MIC = (os.getenv("ILUMINA_BAND_MIC") or "on").lower() not in ("off", "no", "false", "0")
+
+# Check each step the student gives for mistakes: a second Decision 1 call per turn,
+# beside the emotion call. Set ILUMINA_WORK_CHECK=off to run without it.
+WORK_CHECK = (os.getenv("ILUMINA_WORK_CHECK") or "on").lower() not in ("off", "no", "false", "0")
+# The tutor waits at most this long for the check of the turn that just ended, so that it
+# can use it in its answer. On the demo Mac a check takes 0.5 to 0.9 seconds. A check that
+# is later than this goes with the next turn instead.
+WORK_CHECK_WAIT_SECONDS = float(os.getenv("ILUMINA_WORK_CHECK_WAIT") or 0.9)
+
 # Opt-in: save tutoring sessions (the moments the student struggled) to memory/.
 # Lectures from the Vexo band are saved only when the student says yes in lecture.py.
 SAVE_MEMORY = (os.getenv("ILUMINA_MEMORY") or "off").lower() in ("on", "yes", "true", "1")

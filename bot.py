@@ -5,10 +5,16 @@ Emotion path: each student turn's audio, its measured voice features and how the
               compare with the student's usual -> Gemini Decision 1 -> StateTracker
               (Bayesian smoothing with per-state persistence)
               -> a state note for the tutor and a live message for the dashboard
+Work check:   the same audio, the last lines and the camera picture -> Gemini Decision 1
+              -> is the step right, what kind of mistake, where, and what to do next
+              -> a note for the tutor and a live message for the dashboard
 Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per turn
               -> shown on the dashboard and given to Decision 1 beside the audio
 Camera path:  the newest camera frame is shown to the tutor with each student turn
               (the browser's camera, or the head-worn GoPro with ILUMINA_CAMERA=gopro)
+Band:         with ILUMINA_BAND set, the student's Vexo band is the live microphone (the
+              computer's takes over when the band's sound stops), and a double tap on
+              it means "done talking"
 Move path:    the tutor tags each reply with the teaching move it chose; the tag is
               stripped before speech and shown on the dashboard
 
@@ -28,6 +34,9 @@ import certifi
 # Python at certifi's bundle unless the user already set one. Must run before
 # any connection is opened.
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+# Pipecat's debug log would otherwise carry every word of the conversation. The student's
+# words stay out of the log file. Must be set before the first reply is made.
+os.environ.setdefault("PIPECAT_LOG_LLM_CONTEXT", "off")
 
 from fastapi.staticfiles import StaticFiles
 from google import genai
@@ -63,20 +72,54 @@ from ilumina.baseline import SpeakerBaseline
 from ilumina.emotion import score_turn
 from ilumina.measured import measure_turn
 from ilumina.processors import (
+    BandLight,
+    BandMic,
     CameraView,
     MicLevel,
     StudentStateInjector,
     TeachingMoveTagger,
     VoiceEvidence,
 )
-from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
+from ilumina.prompts import (
+    GREETING_NOTE,
+    HOMEWORK_NOTE,
+    TUTOR_SYSTEM_PROMPT,
+    review_greeting,
+    review_note,
+)
 from ilumina.state import LearningStateTracker, StateTracker, describe
+from ilumina.workcheck import check_work
+
+
+def _keep_words_out_of_the_log(record) -> None:
+    """Pipecat's debug log prints the tutor's whole instructions (with the student's class
+    notes, and in a review the transcript) and every sentence it speaks. Keep the line,
+    drop the words."""
+    message = record["message"]
+    if record["function"] == "_compose_system_instruction":
+        record["message"] = message.split(":", 1)[0] + ": instructions composed (text not logged)"
+    elif "Generating TTS [" in message:
+        record["message"] = message.split("[", 1)[0] + "[text not logged]"
+
+
+logger.configure(patcher=_keep_words_out_of_the_log)
+
+# The kind of session the dashboard asked for, set just before it connects. One student
+# uses this bot at a time, so the next session to start is theirs.
+picked = {"mode": "homework"}
 
 headcam = None
 if config.CAMERA == "gopro":
     from ilumina.headcam import HeadCam
 
     headcam = HeadCam()
+
+
+band_link = None
+if config.BAND_USB or config.BAND_NUMBER:
+    from ilumina.band_link import BandLink
+
+    band_link = BandLink(config.BAND_NUMBER, usb=config.BAND_USB, mic=config.BAND_MIC)
 
 
 def recent_text(context: LLMContext, limit: int = 6) -> str:
@@ -108,6 +151,25 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.warning(f"Could not read memory for the dashboard: {e}")
         remembered = None
 
+    # The student picks homework or lecture review on the dashboard. A review needs a
+    # saved class; without one the session is a homework session and says so.
+    asked_for_review = picked["mode"] == "review"
+    review = None
+    if asked_for_review:
+        try:
+            review = memory.review_material()
+        except Exception as e:  # noqa: BLE001 - a session still starts, as homework
+            logger.warning(f"Could not read the class to review: {e}")
+    mode_note = review_note(review) if review else HOMEWORK_NOTE
+    if review:
+        # A review is about that one class and starts fresh: nothing from earlier
+        # sessions or other classes reaches the tutor or the "Remembers" card.
+        memory_note = ""
+        if remembered:
+            newest = remembered.get("lectures", [])[-1:]
+            remembered = {"lectures": newest, "hard_moments": 0, "plan": ""}
+    logger.info(f"Session mode: {'review' if review else 'homework'}")
+
     stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
     tts = DeepgramTTSService(
         api_key=config.DEEPGRAM_API_KEY,
@@ -118,7 +180,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         settings=GoogleLLMService.Settings(
             model=config.GOOGLE_MODEL,
             # Lectures the student saved from the Vexo band, and past sessions, if any.
-            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note,
+            system_instruction=TUTOR_SYSTEM_PROMPT + memory_note + mode_note,
             # A spoken reply has to start fast. "low" is valid on every Gemini 4
             # model; left unset, Hydrogen thinks at "high" before it speaks.
             thinking=GoogleLLMService.ThinkingConfig(thinking_level="low"),
@@ -137,18 +199,36 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     learning_tracker = LearningStateTracker()
     baseline = SpeakerBaseline()  # this student's usual voice, for this session only
     voice_evidence = VoiceEvidence()
-    state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
+    state_injector = StudentStateInjector(
+        wait_seconds=config.STATE_WAIT_SECONDS,
+        work_check_wait_seconds=config.WORK_CHECK_WAIT_SECONDS if config.WORK_CHECK else 0,
+    )
+    camera_view = CameraView(headcam=headcam)
+    work_checks = set()  # checks still running, held here so none is dropped part-way
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
     hard_moments = []  # turns where the student sounded confused or frustrated
+    kept = False
 
-    camera_view = CameraView(headcam=headcam)
+    def keep_hard_moments() -> int:
+        """Save this session's hard moments to memory, once. Returns how many are saved."""
+        nonlocal kept
+        if not hard_moments:
+            return 0
+        if not kept:
+            path = memory.save("sessions", {"hard_moments": hard_moments})
+            kept = True
+            logger.info(f"Saved {len(hard_moments)} hard moments of this session to {path}")
+        return len(hard_moments)
+
     pipeline = Pipeline(
         [
             transport.input(),
+            *([BandMic(band_link)] if band_link else []),
             MicLevel(),
             stt,
             voice_evidence,
             user_aggregator,
+            *([BandLight(band_link)] if band_link else []),
             camera_view,
             state_injector,
             llm,
@@ -165,6 +245,28 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
     )
 
+    async def check_turn(wav: bytes):
+        """Check the work in the turn that just ended. A failure here never stops the tutor."""
+        started = time.monotonic()
+        try:
+            jpeg = await asyncio.to_thread(camera_view.jpeg)
+            check = await check_work(
+                decisions_client, config.DECISION_MODEL, wav, recent_text(context), jpeg
+            )
+        except Exception as e:  # noqa: BLE001 - the tutor answers without the check
+            logger.warning(f"Work check failed, tutor continues without it: {e}")
+            await worker.queue_frame(
+                RTVIServerMessageFrame(data={"type": "work_check_error", "error": str(e)})
+            )
+            return
+        if not check:
+            return
+        check["checked_ms"] = round((time.monotonic() - started) * 1000)
+        check["with_picture"] = jpeg is not None
+        state_injector.set_work_check(check, started)
+        logger.info(f"Work check: {check}")  # option names and numbers only, never the words
+        await worker.queue_frame(RTVIServerMessageFrame(data={"type": "work_check", **check}))
+
     # "on_user_turn_audio_data" fires the moment the student stops speaking.
     # The newer "on_user_turn_audio" only fires after the bot has replied, which
     # is too late to shape that reply. Deprecated in Pipecat 2.0; we pin <2.
@@ -173,6 +275,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         """Score the turn that just ended. A failure here never stops the tutor."""
         try:
             wav = pcm_to_wav(audio, sample_rate, num_channels)
+            if config.WORK_CHECK:  # runs beside the emotion scoring, not after it
+                task = asyncio.create_task(check_turn(wav))
+                work_checks.add(task)
+                task.add_done_callback(work_checks.discard)
             evidence = voice_evidence.take()
             started = time.monotonic()
             # A few milliseconds of numpy; off the event loop so audio keeps flowing.
@@ -215,6 +321,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "type": "student_state",
                     "note": describe(snapshot),
                     "scored_ms": scored_ms,
+                    # So the dashboard knows whether there is anything to ask about saving.
+                    "hard_moments": len(hard_moments),
                     # Measured, not judged: voice features of this turn, clear changes
                     # from the student's usual, and how much this turn counted (0 to 1).
                     "voice": measured["voice"],
@@ -228,8 +336,19 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
     await runner.add_workers(worker)
 
+    loop = asyncio.get_running_loop()
+
+    def from_band(message: dict):
+        """A change on the Vexo band, or a double tap. Called on the band's own thread."""
+        asyncio.run_coroutine_threadsafe(
+            worker.queue_frame(RTVIServerMessageFrame(data=message)), loop
+        )
+
+    if band_link:
+        band_link.start(from_band)
+
     @worker.rtvi.event_handler("on_client_message")
-    async def on_client_message(rtvi, message):
+    async def on_camera_frame(rtvi, message):
         # The hosted dashboard sends its camera as one JPEG a second (WebSockets carry no video).
         if message.type != "camera_frame" or not isinstance(message.data, dict):
             return
@@ -249,29 +368,48 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
                     "camera": config.CAMERA,
+                    "work_check": config.WORK_CHECK,
+                    "mode": "review" if review else "homework",
+                    "no_class_to_review": asked_for_review and not review,
+                    # With the setting on, hard moments are saved without a question.
+                    "saves_without_asking": config.SAVE_MEMORY,
                     # Hosted sessions end at the function's time limit; 0 means no limit.
                     "limit_seconds": config.SESSION_SECONDS,
                 }
             )
         )
+        if band_link:
+            # Where the band stands right now. Later changes arrive by themselves.
+            await worker.queue_frame(RTVIServerMessageFrame(data=band_link.status))
         if remembered:
             # What the tutor was told it remembers, so the student can see it too.
-            await worker.queue_frame(RTVIServerMessageFrame(data={"type": "memory", **remembered}))
-        greeting = GREETING_NOTE
-        if memory_note and remembered and remembered["lectures"]:
-            # Open from the newest class, by name, so the tutor does not pick an older one.
-            newest = remembered["lectures"][-1]["title"]
-            greeting = GREETING_WITH_MEMORY_NOTE.format(title=newest)
+            reviewing = (review["title"] or "your most recent class") if review else ""
+            await worker.queue_frame(
+                RTVIServerMessageFrame(
+                    data={"type": "memory", "reviewing": reviewing, **remembered}
+                )
+            )
+        greeting = review_greeting(review) if review else GREETING_NOTE
         context.add_message({"role": "developer", "content": greeting})
         await worker.queue_frames([LLMRunFrame()])
+
+    @worker.rtvi.event_handler("on_client_message")
+    async def on_save_session(rtvi, message):
+        # The dashboard asks the student before a session ends. Only a yes arrives here.
+        if message.type != "save_session":
+            return
+        try:
+            await rtvi.send_server_response(message, {"saved": keep_hard_moments()})
+        except Exception as e:  # noqa: BLE001 - the student must still get an answer
+            logger.warning(f"Could not save this session to memory: {e}")
+            await rtvi.send_error_response(message, "Could not save this session.")
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         logger.info("Client disconnected")
         try:
-            if config.SAVE_MEMORY and hard_moments:
-                path = memory.save("sessions", {"hard_moments": hard_moments})
-                logger.info(f"Saved this session's hard moments to {path}")
+            if config.SAVE_MEMORY:  # the setting saves without asking
+                keep_hard_moments()
         except Exception as e:  # noqa: BLE001 - never block shutting the session down
             logger.warning(f"Could not save this session to memory: {e}")
         finally:
@@ -280,6 +418,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     try:
         await runner.run()
     finally:
+        if band_link:
+            band_link.stop(from_band)
         if headcam:
             # The camera stops with the session, however the session ended.
             await asyncio.to_thread(headcam.release, session)
@@ -320,14 +460,32 @@ if __name__ == "__main__":
         name="dashboard",
     )
 
-    if headcam:
-        from fastapi import HTTPException, Request, Response
+    from fastapi import HTTPException, Request, Response
 
-        def only_the_dashboard(request: Request):
-            # Other websites open in the same browser must not switch or see the camera.
-            same_site = request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
-            if not same_site or request.url.hostname not in ("localhost", "127.0.0.1"):
-                raise HTTPException(status_code=403)
+    def only_the_dashboard(request: Request):
+        # Other websites open in the same browser must not switch or see the camera,
+        # or choose the kind of session.
+        same_site = request.headers.get("sec-fetch-site", "same-origin") == "same-origin"
+        if not same_site or request.url.hostname not in ("localhost", "127.0.0.1"):
+            raise HTTPException(status_code=403)
+
+    @app.post("/mode/{name}")
+    def pick_mode(name: str, request: Request):
+        """The dashboard says which kind of session it is about to start."""
+        only_the_dashboard(request)
+        picked["mode"] = "review" if name == "review" else "homework"
+        return picked
+
+    if band_link:
+
+        @app.post("/band/mic/{state}")
+        def switch_band_mic(state: str, request: Request):
+            """The dashboard picks the band's microphone or the computer's."""
+            only_the_dashboard(request)
+            band_link.use_mic(state == "on")
+            return {"mic": band_link.mic}
+
+    if headcam:
 
         @app.post("/headcam/{state}")
         def switch_headcam(state: str, request: Request):

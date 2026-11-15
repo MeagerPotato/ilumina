@@ -162,3 +162,41 @@ def test_a_text_transcript_is_read_without_the_band_or_deepgram(tmp_path, monkey
             assert str(path) in str(e)
         else:
             raise AssertionError("read_text() should have stopped")
+
+
+def test_a_lecture_review_gets_the_newest_class_in_full(tmp_path):
+    from ilumina.prompts import review_greeting, review_note
+
+    assert memory.review_material(tmp_path) is None  # no class saved, nothing to review
+
+    def put(name, transcript, notes):  # files are named by the second, so name them here
+        path = tmp_path / "lectures" / f"{name}.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps({"transcript": transcript, "notes": notes}))
+        return path
+
+    put("1", "old words", NOTES)
+    newest = {**NOTES, "title": "Chain rule", "formulas": ["$(f(g))' = f'(g) g'$"]}
+    path = put("2", "x" * 50, newest)
+    review = memory.review_material(tmp_path, max_chars=20)
+    assert review["title"] == "Chain rule"
+    assert "Power rule" in review["notes"] and "$(f(g))' = f'(g) g'$" in review["notes"]
+    assert "What is the derivative of x^3?" in review["notes"]
+    assert review["transcript"] == "x" * 20 and review["cut"]  # a long class is cut, and says so
+
+    # The tutor's instructions take the class as it is, braces and all, and say it was cut.
+    note = review_note({**review, "notes": "$\\frac{d}{dx}$"})
+    assert '"Chain rule"' in note and "$\\frac{d}{dx}$" in note
+    assert "stops before the end of the class" in note
+    assert "=== transcript starts ===\n" + "x" * 20 + "\n=== transcript ends ===" in note
+    assert '"Chain rule"' in review_greeting(review)
+    whole = memory.review_material(tmp_path)
+    assert not whole["cut"] and "stops before the end" not in review_note(whole)
+
+    # A damaged newest file is skipped, and a class without a title has no name to say.
+    path.write_text("{not json")
+    assert memory.review_material(tmp_path)["title"] == "Derivatives"
+    put("3", "t", memory.empty_notes())
+    untitled = memory.review_material(tmp_path)
+    assert untitled["title"] == ""
+    assert "Untitled" not in review_greeting(untitled) + review_note(untitled)

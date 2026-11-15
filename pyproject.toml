@@ -9,7 +9,7 @@ dependencies = [
     "pipecat-ai[deepgram,google,runner,silero,webrtc]<2",
     "python-dotenv>=1.2.4",
     "sounddevice>=0.5.6",
-    "vexo-open[ble]",
+    "vexo-open[ble,serial]",
 ]
 
 [dependency-groups]

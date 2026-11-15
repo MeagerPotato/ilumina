@@ -239,6 +239,26 @@ function stopWave() {
 
 // Math: text between dollar signs is LaTeX, drawn by KaTeX. If KaTeX did not load,
 // or cannot read it, the math is shown as it was written.
+// The check of the student's last step, as the bot sent it: real probabilities only.
+const VERDICT_TEXT = { mistake: "Probably a mistake", correct: "Looks right", nothing: "Nothing to check in that turn" };
+const WORK_ROWS = [["kind", "What kind"], ["place", "Where"], ["fix", "What to do next"]];
+const sure = (part) => `${Math.round(part.sure * 100)}%`;
+
+function renderWork(check) {
+  const verdict = check.verdict?.choice;
+  const rows = verdict !== "mistake" ? [] : WORK_ROWS
+    .filter(([key]) => check[key] && check[key].choice !== "none")
+    .map(([key, name]) => `<div><dt>${name}</dt><dd>${esc(check[key].label)}</dd><dd>${sure(check[key])}</dd></div>`);
+  const from = check.with_picture ? "their voice, their words and a picture of the page" : "their voice and their words";
+  const took = check.checked_ms == null ? "" : ` in ${(check.checked_ms / 1000).toFixed(2)} seconds`;
+  $("work").innerHTML =
+    `<p class="verdict" data-verdict="${esc(verdict)}"><b>${esc(VERDICT_TEXT[verdict] ?? check.verdict?.label ?? "")}</b>` +
+    `<span>${check.verdict ? sure(check.verdict) + " sure" : ""}</span></p>` +
+    (rows.length ? `<dl>${rows.join("")}</dl>` : "") +
+    `<p class="scored">Checked from ${from}${took}. An estimate, not a grade.</p>`;
+  $("work-told").hidden = true; // that line was about the check before this one
+}
+
 function tex(latex, display = false) {
   try {
     return window.katex.renderToString(latex, { displayMode: display, throwOnError: false });
@@ -284,7 +304,8 @@ function renderMemory(m) {
     return;
   }
   $("memory").innerHTML = classes + moments
-    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "");
+    + (m.plan ? `<h3>Study plan</h3><div class="plan" tabindex="0">${planHtml(m.plan)}</div>` : "")
+    + (m.reviewing ? `<p class="kept">For this review the tutor also has the transcript of ${esc(m.reviewing)}.</p>` : "");
 }
 
 // Over the session: one row per reading, plus rows for the overall state and the tutor's moves.
@@ -398,11 +419,17 @@ let micTimer;
 const STAGES = {
   starting: ["Getting ready", "Ilumina is about to say hello."],
   listening: ["Your turn", "Ilumina is listening."],
-  hearing: ["Hearing you", "Press Done talking to send it now."],
+  hearing: ["Hearing you", ""], // the hint is howToSend(), which knows about the band
   thinking: ["Heard you", "Ilumina is thinking."],
   speaking: ["Ilumina is speaking", "Talk over it to interrupt."],
 };
 const NO_ANSWER_AFTER_MS = 12000;
+// With the Vexo band connected, a double tap on the wrist does what the button does.
+let bandOn = false, hearingSince = 0;
+$("band-mic").onclick = () =>
+  fetch(`/band/mic/${$("band-mic").dataset.next}`, { method: "POST" }).catch(console.error);
+const howToSend = () => bandOn ? "double-tap your band or press Done talking" : "press Done talking";
+const sentence = (text) => text[0].toUpperCase() + text.slice(1);
 let stageNow = null, heardText = "", userSpeaking = false;
 let micPaused = false, turnEnded = false, micGraceUntil = 0, quietTimer, thinkTimer;
 
@@ -411,11 +438,13 @@ let micPaused = false, turnEnded = false, micGraceUntil = 0, quietTimer, thinkTi
 function setStage(stage, hint, quiet = false) {
   clearTimeout(quietTimer);
   clearTimeout(thinkTimer);
+  if (stage === "hearing" && stageNow !== "hearing") hearingSince = Date.now();
   stageNow = stage;
   $("stage").hidden = !stage;
   if (!stage) return;
   if (stage !== "hearing") heardText = "";
-  const [name, usual] = STAGES[stage];
+  const [name, usual] = stage === "hearing"
+    ? [STAGES.hearing[0], `${sentence(howToSend())} to send it now.`] : STAGES[stage];
   $("stage").dataset.stage = stage;
   $("stage-name").textContent = name;
   $("stage-hint").textContent = hint ?? usual;
@@ -445,7 +474,7 @@ function hearing(text) {
   setStage("hearing", words ? `Heard so far: "${words.length > 70 ? "…" + words.slice(-70) : words}"` : undefined, Boolean(words));
   // In a loud room Flux can wait a long time to be sure the turn is over. Say so.
   quietTimer = setTimeout(() => {
-    setStage("hearing", "No new words. Waiting to be sure you have finished, or press Done talking.");
+    setStage("hearing", `No new words. Waiting to be sure you have finished, or ${howToSend()}.`);
   }, 2500);
 }
 
@@ -485,6 +514,7 @@ const stageEvents = {
 // The single entry point for bot data.
 function receive(msg) {
   if (msg?.type === "student_state") {
+    hardMoments = msg.hard_moments ?? 0;
     history.push(msg);
     flow("flow1");
     renderNow(msg);
@@ -510,6 +540,26 @@ function receive(msg) {
       renderMic(0);
       $("mic-text").textContent = "No sound arriving";
     }, 3000);
+  } else if (msg?.type === "band") {
+    // The student's Vexo band: found or not, and its battery.
+    bandOn = msg.state === "connected";
+    const name = msg.number ? `Vexo band ${msg.number}` : "Vexo band";
+    $("band").hidden = msg.state === "off";
+    $("band-consent").hidden = false;
+    // The band can be the microphone. The button swaps it with the computer's, in case
+    // the wrist is too far from the mouth in a loud room.
+    $("band-mic").hidden = !bandOn;
+    $("band-mic").textContent = msg.mic ? "Use computer mic" : "Use band mic";
+    $("band-mic").dataset.next = msg.mic ? "off" : "on";
+    $("band").textContent = bandOn
+      ? `${name} is ${msg.mic ? "your microphone" : "connected, computer mic"}${msg.battery == null ? "" : `, battery ${msg.battery}%`}`
+      : msg.state === "blocked" ? `${name}: Bluetooth is not allowed here, start the bot from Terminal`
+      : (msg.number ? `${name}: double-tap it to connect` : `${name}: plug in its cable`)
+        + (msg.problem && msg.problem !== "not-found-nearby" ? ` (${msg.problem})` : "");
+  } else if (msg?.type === "band_tap") {
+    // Only does something while Ilumina is hearing the student. A knock in the first
+    // second of a turn is more likely the wrist landing on the desk than a "done".
+    if (Date.now() - hearingSince > 1000) doneTalking();
   } else if (msg?.type === "voice_evidence") {
     renderEvidence(msg);
   } else if (msg?.type === "memory") {
@@ -529,6 +579,17 @@ function receive(msg) {
     $("board").hidden = false;
     $("board-math").innerHTML = tex(msg.latex, true);
     replay($("board"), "swap");
+  } else if (msg?.type === "work_check") {
+    renderWork(msg);
+  } else if (msg?.type === "work_check_told") {
+    $("work-told").hidden = false;
+    $("work-told").textContent = msg.which === "previous"
+      ? "This check came after the tutor started answering, so the tutor got it with the next turn."
+      : "The tutor had this check before it answered.";
+  } else if (msg?.type === "work_check_error") {
+    const reason = msg.error ? ` Reason: ${String(msg.error).slice(0, 200)}` : "";
+    $("work").innerHTML = `<p class="failed">${esc("The check of that turn failed. The tutor answered without it." + reason)}</p>`;
+    $("work-told").hidden = true;
   } else if (msg?.type === "student_state_error") {
     $("note-box").hidden = false;
     $("note").classList.add("stale");
@@ -537,7 +598,19 @@ function receive(msg) {
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
     $("scored").textContent = "last reading failed";
   } else if (msg?.type === "session_info") {
-    $("running").textContent = `Pipecat · Deepgram Flux + Aura-2 · ${msg.tutor_model} teaches · ${msg.emotion_model} reads`;
+    $("running").textContent = `Pipecat · Deepgram Flux + Aura-2 · ${msg.tutor_model} teaches · ${msg.emotion_model} reads${msg.work_check ? " and checks the work" : ""}`;
+    if (msg.work_check === false && $("work").querySelector(".empty")) {
+      $("work").querySelector(".empty").textContent = "The work check is switched off for this session.";
+    }
+    // The bot says which kind of session it really started.
+    if (msg.mode) showMode(msg.mode);
+    savesWithoutAsking = Boolean(msg.saves_without_asking);
+    if (msg.no_class_to_review || (msg.mode && msg.mode !== askedMode)) {
+      $("problem").hidden = false;
+      $("problem").textContent = msg.no_class_to_review
+        ? "Ilumina found no saved class to review, so this is a homework session. Save one with lecture.py, then start a lecture review."
+        : `Ilumina started a ${msg.mode === "review" ? "lecture review" : "homework"} session, not the kind you picked. End it and start again.`;
+    }
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "head-worn GoPro";
     startSessionClock(msg.limit_seconds);
@@ -667,11 +740,80 @@ function toggleCamera() {
 
 let client;
 const shownSegments = new Set();
+
+// The parts of the page that fill up during a session, as they look before one. Every new
+// session starts from them, so nothing of the last one stays on screen: not its board, its
+// timeline, its readings or its conversation.
+const FRESH = [".loop", ".card.work", "#trace", "#lines", "#memory"].map((part) => {
+  const el = document.querySelector(part);
+  return [el, el.innerHTML];
+});
+function clearSession() {
+  for (const [el, html] of FRESH) el.innerHTML = html;
+  history.length = moves.length = 0;
+  shownSegments.clear();
+  hardMoments = 0;
+  $("tip").hidden = $("problem").hidden = true;
+}
+
+// The two kinds of session. The choice is sent to the bot when the session starts.
+const MODE_HINT = {
+  homework: "Homework: bring a problem. Ilumina reads your page and helps you through it.",
+  review: "Lecture review: go back over your last class, one idea at a time.",
+};
+let askedMode = "homework";
+const pickedMode = () => document.querySelector('input[name="mode"]:checked').value;
+function showMode(mode) {
+  document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+  document.body.dataset.mode = mode;
+  $("mode-hint").textContent = MODE_HINT[mode];
+}
+
+// Nothing from a session is kept unless the student says yes when it ends. (With
+// ILUMINA_MEMORY=on the bot saves without asking, and says so in session_info.)
+let hardMoments = 0, endNote = "", savesWithoutAsking = false, ending = false, askShownAt = 0;
+const moments = (n) => `${n} hard ${n === 1 ? "moment" : "moments"}`;
+// A held Enter key or a double click must not answer a question nobody has read yet.
+const tooSoon = () => Date.now() - askShownAt < 500;
+
+async function endSession(save) {
+  if (ending) return;
+  ending = true;
+  const session = client;
+  $("ask").hidden = true;
+  $("connect").disabled = true;
+  if (save) {
+    try {
+      const { saved } = await session.sendClientRequest("save_session", {}, 3000);
+      endNote = saved ? ` Saved ${moments(saved)} for next time.` : " Nothing was saved.";
+    } catch (e) {
+      console.error(e);
+      endNote = " The save could not be confirmed.";
+    }
+  } else if (savesWithoutAsking && hardMoments) {
+    endNote = ` ${moments(hardMoments)} saved, because ILUMINA_MEMORY is on.`;
+  }
+  if (client !== session) return; // that session already ended while the save was on its way
+  resumeMic(); // never leave the microphone track switched off for the next session
+  await session.disconnect();
+}
+
 async function toggle() {
   const button = $("connect");
   if (client) {
-    resumeMic(); // never leave the microphone track switched off for the next session
-    await client.disconnect();
+    if (!$("ask").hidden) {
+      if (!tooSoon()) await endSession(false);
+      return;
+    }
+    if (hardMoments && !savesWithoutAsking) {
+      $("ask-text").textContent = `You sounded stuck ${hardMoments === 1 ? "once" : `${hardMoments} times`} in this session. ` +
+        "Ilumina can keep what was said then, on this computer only, and start there next time.";
+      $("ask").hidden = false;
+      askShownAt = Date.now();
+      $("ask-skip").focus(); // a stray Enter then saves nothing
+      return;
+    }
+    await endSession(false);
     return;
   }
   const passcode = $("passcode").value.trim();
@@ -681,6 +823,9 @@ async function toggle() {
     return;
   }
   button.disabled = true;
+  $("mode").disabled = true;
+  askedMode = pickedMode();
+  clearSession();
   $("status").textContent = "Connecting";
   client = new PipecatClient({
     transport: HOSTED
@@ -696,7 +841,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("passcode").hidden = !HOSTED; clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { $("passcode").hidden = !HOSTED; clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mode").disabled = false; $("ask").hidden = true; hardMoments = 0; ending = false; $("mic").hidden = true; $("band").hidden = true; $("band-mic").hidden = true; bandOn = false; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : endNote ? "Session ended." + endNote : "Not connected"; timeUp = false; endNote = ""; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -751,6 +896,9 @@ async function toggle() {
       const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/bot?passcode=${encodeURIComponent(passcode)}`;
       await client.connect({ wsUrl });
     } else {
+      // The bot is told the kind of session first, then the session starts.
+      const told = await fetch(`/mode/${askedMode}`, { method: "POST" });
+      if (!told.ok) throw new Error(`The bot refused the session mode (${told.status}).`);
       await client.connect({ webrtcRequestParams: { endpoint: "/api/offer" } });
     }
   } catch (e) {
@@ -759,6 +907,7 @@ async function toggle() {
       ? (e?.status === 401 ? "Wrong passcode" : e?.status === 503 ? "The tutor is not set up yet" : "Could not start the tutor. Try again in a minute.")
       : "Could not connect. Is the bot running?";
     button.disabled = false;
+    $("mode").disabled = false;
     client = undefined;
   }
 }
@@ -769,9 +918,13 @@ if (HOSTED) {
   $("passcode").addEventListener("keydown", (e) => { if (e.key === "Enter" && !client) toggle(); });
 }
 $("connect").addEventListener("click", toggle);
+$("mode").addEventListener("change", () => showMode(pickedMode()));
+showMode(pickedMode());
 $("done").addEventListener("click", doneTalking);
+$("ask-save").addEventListener("click", () => tooSoon() || endSession(true));
+$("ask-skip").addEventListener("click", () => tooSoon() || endSession(false));
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => HOSTED ? setHostedCam(true, e.target.value) : client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, addLine, startWave }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, addLine, startWave, toggle, use: (c) => { client = c; } }; // lets checks feed recorded messages and a camera track
