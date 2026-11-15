@@ -8,6 +8,8 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     ProposedUserStartedSpeakingFrame,
     TranscriptionFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
@@ -231,3 +233,41 @@ def test_hedges_and_silence_are_counted():
     evidence = voice_evidence(turn)
     assert evidence["hedges"] == 2  # "I dont know" and "sort of"
     assert evidence["silence"] == 0.8  # the one gap of 0.25 s or more
+
+
+def eleven_piece(*words) -> dict:
+    """One ElevenLabs piece of a turn: its words, with the spaces it also lists."""
+    out = []
+    for text, start, end in words:
+        out += [{"text": text, "start": start, "end": end, "type": "word"},
+                {"text": " ", "start": end, "end": end + 0.1, "type": "spacing"}]  # fmt: skip
+    return {"words": out}
+
+
+def test_an_elevenlabs_turn_in_pieces_is_measured_as_one():
+    # Without Flux there is no proposed start: the aggregator's start opens the turn,
+    # and each pause sends a piece of the turn.
+    frames = [
+        BotStartedSpeakingFrame(),
+        BotStoppedSpeakingFrame(),
+        UserStartedSpeakingFrame(),
+        transcription(eleven_piece(("um", 0.0, 0.3), ("I", 0.5, 0.6), ("think", 0.6, 0.9))),
+        transcription(eleven_piece(("it's", 2.9, 3.1), ("four", 3.1, 3.5))),
+        UserStoppedSpeakingFrame(),
+    ]
+    evidence, _ = run_frames(frames, clock=[100.0, 101.0])
+    measured = evidence.take()
+    assert measured["words"] == 5 and measured["fillers"] == 1 and measured["hedges"] == 1
+    assert measured["longest_pause"] == 2.0  # the pause between the two pieces
+    assert measured["waited"] == 1.0
+    assert evidence.take_text() == "made-up words made-up words"
+
+
+def test_pieces_whose_timings_start_again_are_not_joined():
+    frames = [
+        UserStartedSpeakingFrame(),
+        transcription(eleven_piece(("two", 0.0, 0.3), ("x", 0.4, 0.6))),
+        transcription(eleven_piece(("four", 0.0, 0.4))),
+    ]
+    evidence, _ = run_frames(frames, clock=[])
+    assert evidence.take()["words"] == 1

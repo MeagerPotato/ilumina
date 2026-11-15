@@ -37,7 +37,7 @@ def _letters(word: str) -> str:
     return "".join(filter(str.isalpha, word)).lower()
 
 
-def _words(result: dict | None) -> list[dict]:
+def timed_words(result: dict | None) -> list[dict]:
     """Timed words, as {"word", "start", "end"}. Flux gives "word"; ElevenLabs gives
     "text" and also lists the spaces between words, which are left out."""
     words = []
@@ -55,7 +55,7 @@ def voice_evidence(result: dict | None, waited: float | None = None) -> dict | N
     `waited` is the silence between the tutor finishing and the student starting, in
     seconds, when the student did not cut the tutor off.
     """
-    words = _words(result)
+    words = timed_words(result)
     if not words:
         return None
     seconds = words[-1]["end"] - words[0]["start"]
@@ -125,4 +125,4 @@ def describe_evidence(evidence: dict) -> str:
         parts.append(f"hedges such as maybe or I think: {evidence['hedges']}")
     if evidence["waited"] is not None:
         parts.append(f"started answering {evidence['waited']} seconds after the tutor finished")
-    return "Measured from this turn's audio by Deepgram: " + ", ".join(parts) + "."
+    return "Measured from this turn's audio by speech to text: " + ", ".join(parts) + "."

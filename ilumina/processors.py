@@ -20,11 +20,13 @@ from pipecat.frames.frames import (
     ProposedUserStartedSpeakingFrame,
     TranscriptionFrame,
     UserImageRawFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
-from ilumina.evidence import voice_evidence
+from ilumina.evidence import timed_words, voice_evidence
 from ilumina.prompts import CAMERA_NOTE
 from ilumina.state import describe
 
@@ -210,6 +212,8 @@ class VoiceEvidence(FrameProcessor):
         self._waited: float | None = None
         self._latest: dict | None = None
         self._latest_text = ""
+        self._turn_open = False  # a turn has started and not ended yet
+        self._words: list[dict] = []  # this turn's timed words so far
 
     def take(self) -> dict | None:
         """The newest turn's evidence, once. A later turn never gets an old one."""
@@ -231,22 +235,37 @@ class VoiceEvidence(FrameProcessor):
             if self._tutor_speaking:
                 self._tutor_stopped_at = time.monotonic()
             self._tutor_speaking = False
-        elif isinstance(frame, ProposedUserStartedSpeakingFrame):
+        elif isinstance(frame, ProposedUserStartedSpeakingFrame) or (
+            # Flux proposes every turn first. Without Flux (the ElevenLabs backup) the
+            # turn's start comes back from the user aggregator instead.
+            isinstance(frame, UserStartedSpeakingFrame) and not self._turn_open
+        ):
             # No wait when the student cut the tutor off. One wait per tutor reply:
             # a second student turn in a row has none either.
+            self._turn_open = True
             self._tutor_speaking = False
             stopped, self._tutor_stopped_at = self._tutor_stopped_at, None
             self._waited = None if stopped is None else time.monotonic() - stopped
             self._latest = None  # evidence nobody took belongs to an earlier turn
             self._latest_text = ""
+            self._words = []
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            self._turn_open = False
         elif isinstance(frame, TranscriptionFrame):
-            self._latest_text = frame.text or ""
+            # ElevenLabs sends a turn in pieces, one per pause; Flux sends it whole.
+            # The pieces are joined so the turn is measured and read as one.
+            self._latest_text = " ".join(filter(None, [self._latest_text, frame.text or ""]))
             try:
-                self._latest = voice_evidence(frame.result, self._waited)
+                words = timed_words(frame.result)
+                # Join the timings only when they run on from the last piece; timings
+                # that start again from zero would make false pauses.
+                if self._words and words and words[0]["start"] >= self._words[-1]["end"]:
+                    words = self._words + words
+                self._words = words
+                self._latest = voice_evidence({"words": words}, self._waited)
             except Exception as e:  # noqa: BLE001 - evidence is a bonus, the turn goes on
                 logger.warning(f"Voice evidence not measured for this turn: {e}")
                 self._latest = None
-            self._waited = None
             logger.info(f"Voice evidence: {self._latest}")  # numbers only, never the words
             # Sent even when empty, so the dashboard never shows an older turn's numbers.
             await self.push_frame(
