@@ -68,6 +68,7 @@ from ilumina.measured import measure_turn
 from ilumina.processors import (
     CameraView,
     MicLevel,
+    PushToTalkGate,
     StudentStateInjector,
     TeachingMoveTagger,
     VoiceEvidence,
@@ -151,9 +152,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     hard_moments = []  # turns where the student sounded confused or frustrated
 
     camera_view = CameraView(headcam=headcam)
+    push_to_talk = PushToTalkGate()
     pipeline = Pipeline(
         [
             transport.input(),
+            push_to_talk,
             MicLevel(),
             stt,
             voice_evidence,
@@ -251,6 +254,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
     @worker.rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
+        # Push to talk: whether it is on, and whether Space or the Talk button is held.
+        if message.type == "push_to_talk" and isinstance(message.data, dict):
+            push_to_talk.set(message.data.get("on"), message.data.get("held"))
+            return
         # The hosted dashboard sends its camera as one JPEG a second (WebSockets carry no video).
         if message.type != "camera_frame" or not isinstance(message.data, dict):
             return

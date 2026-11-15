@@ -117,6 +117,32 @@ class CameraView(FrameProcessor):
         return True
 
 
+class PushToTalkGate(FrameProcessor):
+    """Sits right after the transport input and silences the microphone between holds.
+
+    With push to talk on, the dashboard says when Space or the Talk button is held.
+    Between holds every audio frame still goes on, but as silence: speech to text
+    keeps getting audio, so a turn ends as soon as the student lets go, and nothing
+    said near the microphone in between reaches the tutor. The dashboard also
+    switches its own microphone track off; this gate holds whatever the browser's
+    audio path does. Off by default, so a dashboard that never says otherwise is
+    heard all the time, as before.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.closed = False
+
+    def set(self, on, held) -> None:
+        self.closed = bool(on) and not bool(held)
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if self.closed and isinstance(frame, InputAudioRawFrame) and frame.audio:
+            frame.audio = bytes(len(frame.audio))  # same length and timing, all zero
+        await self.push_frame(frame, direction)
+
+
 # Quieter than this, in dB below full scale, the microphone is sending near silence.
 SILENT_BELOW_DBFS = -50
 _LEVEL_EVERY_SECONDS, _LOG_EVERY_LEVELS = 1.0, 5

@@ -403,6 +403,12 @@ const STAGES = {
   thinking: ["Heard you", "Ilumina is thinking."],
   speaking: ["Ilumina is speaking", "Talk over it to interrupt."],
 };
+// With push to talk on, the same stages say what to hold.
+const PTT_HINTS = {
+  listening: "Hold Space or Talk to speak.",
+  hearing: "Let go to send.",
+  speaking: "Hold Space to interrupt.",
+};
 const NO_ANSWER_AFTER_MS = 12000;
 let stageNow = null, heardText = "", userSpeaking = false;
 let micPaused = false, turnEnded = false, micGraceUntil = 0, quietTimer, thinkTimer;
@@ -416,7 +422,7 @@ function setStage(stage, hint, quiet = false) {
   $("stage").hidden = !stage;
   if (!stage) return;
   if (stage !== "hearing") heardText = "";
-  const [name, usual] = STAGES[stage];
+  const name = STAGES[stage][0], usual = (ptt && PTT_HINTS[stage]) || STAGES[stage][1];
   $("stage").dataset.stage = stage;
   $("stage-name").textContent = name;
   $("stage-hint").textContent = hint ?? usual;
@@ -453,8 +459,9 @@ function noAnswer() {
   const caught = !micPaused || turnEnded; // did the bot get the end of the turn?
   resumeMic();
   setStage("listening", caught
-    ? "No answer came. You can speak again."
-    : "Ilumina did not catch the end of that. Your microphone is back on, so say it again.");
+    ? (ptt ? "No answer came. Hold Space to try again." : "No answer came. You can speak again.")
+    : (ptt ? "Ilumina did not catch the end of that. Hold Space and say it again."
+      : "Ilumina did not catch the end of that. Your microphone is back on, so say it again."));
 }
 
 // The words Flux has so far for this turn. Seeing them is the proof of being heard.
@@ -466,15 +473,74 @@ function hearing(text) {
   if (stageNow === "hearing" && words === heardText) return;
   heardText = words;
   setStage("hearing", words ? `Heard so far: "${words.length > 70 ? "…" + words.slice(-70) : words}"` : undefined, Boolean(words));
+  // Words can arrive just after Talk was let go. The silence that ends the turn is already on its way.
+  if (ptt && !held) return doneTalking();
   // In a loud room Flux can wait a long time to be sure the turn is over. Say so.
   quietTimer = setTimeout(() => {
-    setStage("hearing", "No new words. Waiting to be sure you have finished, or press Done talking.");
+    setStage("hearing", ptt ? "No new words. Let go when you have finished."
+      : "No new words. Waiting to be sure you have finished, or press Done talking.");
   }, 2500);
 }
 
-function setMic(on) {
+// Push to talk: the microphone sends silence unless Space or the Talk button is held,
+// so people can talk beside the laptop without Ilumina hearing them. Letting go sends
+// the same silence as Done talking, which ends the turn at once.
+let ptt = false, held = false;
+try { ptt = localStorage.getItem("ilumina-ptt") === "1"; } catch {}
+
+function applyMic() {
   const track = client?.tracks()?.local?.audio;
-  if (track) track.enabled = on; // a switched-off track sends silence, so the bot still gets audio
+  // A switched-off track sends silence, so the bot still gets audio and Flux can end the turn.
+  if (track) track.enabled = ptt ? held : !micPaused;
+  tellBot();
+}
+
+// The bot silences the microphone itself too (PushToTalkGate), whatever the browser's
+// audio path does with a switched-off track. It is told only when something changes.
+let pttSent = "";
+function tellBot() {
+  const now = `${ptt} ${held}`;
+  if (!client || now === pttSent) return;
+  try {
+    client.sendClientMessage("push_to_talk", { on: ptt, held });
+    pttSent = now;
+  } catch {} // not connected yet: sent again once the bot is ready
+}
+
+function showTalk() {
+  $("done").hidden = ptt;
+  $("talk").hidden = !ptt;
+  $("talk").setAttribute("aria-pressed", String(held));
+  $("talk-label").textContent = held ? "Talking · let go to send" : "Hold to talk";
+  if (!$("mic").hidden) {
+    $("mic").classList.remove("silent");
+    $("mic-text").textContent = ptt && !held ? "Mic off" : "Mic live";
+  }
+}
+
+function setPtt(on) {
+  ptt = on;
+  held = false;
+  try { localStorage.setItem("ilumina-ptt", on ? "1" : "0"); } catch {}
+  applyMic();
+  showTalk();
+  if (stageNow) setStage(stageNow); // the hints follow the mode
+}
+
+function pressTalk() {
+  if (!ptt || !client || held) return;
+  held = true;
+  micPaused = false; // a new hold always opens the microphone, even while Ilumina is thinking
+  applyMic();
+  showTalk();
+}
+
+function releaseTalk() {
+  if (!held) return;
+  held = false;
+  applyMic();
+  showTalk();
+  if (stageNow === "hearing") doneTalking();
 }
 
 // A silent microphone is the clearest end of a turn there is, even in a loud room.
@@ -482,8 +548,8 @@ function doneTalking() {
   if (micPaused || stageNow !== "hearing") return;
   micPaused = true;
   turnEnded = false;
-  setMic(false);
-  setStage("thinking", "Sent. Your microphone is paused until Ilumina answers.");
+  applyMic();
+  setStage("thinking", ptt ? "Sent. Ilumina is thinking." : "Sent. Your microphone is paused until Ilumina answers.");
 }
 
 function resumeMic() {
@@ -491,11 +557,11 @@ function resumeMic() {
   if (!micPaused) return;
   micPaused = false;
   micGraceUntil = Date.now() + 1500; // the next level report still covers the pause
-  setMic(true);
+  applyMic();
 }
 
 const stageEvents = {
-  onBotReady: () => setStage("starting"),
+  onBotReady: () => { pttSent = ""; applyMic(); setStage("starting"); },
   onUserStartedSpeaking: () => hearing(""),
   onUserStoppedSpeaking: () => { userSpeaking = false; turnEnded = true; if (!micPaused) setStage("thinking"); },
   // The bot speaking settles it: whatever came before, the turn has passed to Ilumina.
@@ -521,11 +587,13 @@ function receive(msg) {
       : `turn ${msg.turn}`;
   } else if (msg?.type === "mic_level") {
     $("mic").hidden = false;
+    applyMic(); // a new microphone track (another device) starts switched on
+    const off = ptt && !held;
     const paused = micPaused || Date.now() < micGraceUntil;
-    $("mic").classList.toggle("silent", msg.silent && !paused);
+    $("mic").classList.toggle("silent", msg.silent && !paused && !off);
     renderMic((msg.dbfs + 60) / 60, "on");
     if (!wave) startWave(client?.tracks?.()?.local?.audio);
-    $("mic-text").textContent = paused ? "Mic paused" : msg.silent ? "Mic is silent" : "Mic live";
+    $("mic-text").textContent = off ? "Mic off" : paused ? "Mic paused" : msg.silent ? "Mic is silent" : "Mic live";
     // Levels come once a second. If they stop, no sound is reaching the bot at all.
     clearTimeout(micTimer);
     micTimer = setTimeout(() => {
@@ -718,8 +786,8 @@ async function toggle() {
     enableMic: true,
     enableCam: false,
     callbacks: {
-      onConnected: () => { $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("passcode").hidden = !(HOSTED && needsPasscode); clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
+      onConnected: () => { applyMic(); $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
+      onDisconnected: () => { held = false; pttSent = ""; showTalk(); $("passcode").hidden = !(HOSTED && needsPasscode); clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -737,7 +805,8 @@ async function toggle() {
           client.getAllCams().then(listCameras).catch(console.error);
           return;
         }
-        if (track.kind !== "audio" || participant?.local) return;
+        if (track.kind !== "audio") return;
+        if (participant?.local) { applyMic(); return; } // with push to talk, the microphone starts off
         if ($("bot-audio").srcObject?.getAudioTracks()[0] === track) return;
         $("bot-audio").srcObject = new MediaStream([track]);
       },
@@ -802,8 +871,33 @@ if (HOSTED) {
 }
 $("connect").addEventListener("click", toggle);
 $("done").addEventListener("click", doneTalking);
+$("ptt").checked = ptt;
+showTalk();
+$("ptt").addEventListener("change", (e) => setPtt(e.target.checked));
+// Hold Space anywhere, or hold the Talk button. Space must not also press a focused
+// button such as End session, so it is taken before the page sees it.
+const typing = (el) => el?.closest?.("input:not([type=checkbox]), textarea, select, [contenteditable]");
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "Space" || !ptt || !client || typing(e.target)) return;
+  e.preventDefault();
+  if (!e.repeat) pressTalk();
+}, true);
+window.addEventListener("keyup", (e) => {
+  if (e.code !== "Space" || !(held || (ptt && client)) || typing(e.target)) return;
+  e.preventDefault();
+  releaseTalk();
+}, true);
+window.addEventListener("blur", releaseTalk);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseTalk(); });
+$("talk").addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  $("talk").setPointerCapture(e.pointerId);
+  pressTalk();
+});
+for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) $("talk").addEventListener(ev, releaseTalk);
+$("talk").addEventListener("contextmenu", (e) => e.preventDefault());
 $("cam-toggle").addEventListener("click", toggleCamera);
 // A closed or reloaded page cannot click "off", so say it on the way out.
 window.addEventListener("pagehide", () => { if (headcamTimer) navigator.sendBeacon("/headcam/off"); });
 $("cam-pick").addEventListener("change", (e) => HOSTED ? setHostedCam(true, e.target.value) : client?.updateCam(e.target.value));
-window.ilumina = { receive, showCamera, setHeadcam, stageEvents, hearing, addLine, startWave }; // lets checks feed recorded messages and a camera track
+window.ilumina = { receive, pressTalk, releaseTalk, setPtt, showCamera, setHeadcam, stageEvents, hearing, addLine, startWave }; // lets checks feed recorded messages and a camera track
