@@ -8,6 +8,7 @@ import { PipecatClient, SmallWebRTCTransport, WavMediaManager, WebSocketTranspor
 // That function has a time limit, so the bot says how long a session may last.
 const HOSTED = location.pathname.startsWith("/app");
 let sessionTimer, timeUp = false;
+let needsPasscode = false; // set from the server when the page loads
 function startSessionClock(seconds) {
   clearInterval(sessionTimer);
   if (!seconds) return;
@@ -697,7 +698,7 @@ async function toggle() {
     return;
   }
   const passcode = $("passcode").value.trim();
-  if (HOSTED && !passcode) {
+  if (HOSTED && needsPasscode && !passcode) {
     $("status").textContent = "Enter the passcode first";
     $("passcode").focus();
     return;
@@ -718,7 +719,7 @@ async function toggle() {
     enableCam: false,
     callbacks: {
       onConnected: () => { $("passcode").hidden = true; $("status").textContent = "Connected"; button.textContent = "End session"; button.disabled = false; $("problem").hidden = true; resetCamera("Camera is off. Ilumina hears you but sees nothing."); },
-      onDisconnected: () => { $("passcode").hidden = !HOSTED; clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
+      onDisconnected: () => { $("passcode").hidden = !(HOSTED && needsPasscode); clearTimeout(micTimer); stopWave(); resumeMic(); setStage(null); $("mic").hidden = true; clearInterval(sessionTimer); $("status").textContent = timeUp ? "Time is up. Start a new session to keep going." : "Not connected"; timeUp = false; button.textContent = "Start session"; button.disabled = false; client = undefined; if (headcamTimer) setHeadcam(false); if (hostedCam) setHostedCam(false); resetCamera("Start a session to use the camera."); },
       onServerMessage: receive,
       ...stageEvents,
       onUserTranscript: (t) => { if (t.final) addLine("You", t.text); else hearing(t.text); },
@@ -788,12 +789,14 @@ async function toggle() {
 
 if (HOSTED) {
   // A cold bot function takes several seconds to start (it unpacks its packages first).
-  // Wake it while the page loads, so Start session connects quickly. The GET is refused
-  // with 405 and starts nothing.
-  const wake = () => fetch("/api/bot", { cache: "no-store" }).catch(() => {});
-  wake();
-  $("passcode").addEventListener("focus", wake, { once: true });
-  $("passcode").hidden = false;
+  // Wake it while the page loads, so Start session connects quickly. The same request,
+  // with no passcode, says whether the site asks for one: 200 means it is open to anyone.
+  fetch("/api/bot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    .then((r) => {
+      needsPasscode = r.status === 401;
+      $("passcode").hidden = !needsPasscode || Boolean(client);
+    })
+    .catch(() => {});
   try { $("passcode").value = sessionStorage.getItem("ilumina-passcode") ?? ""; } catch {}
   $("passcode").addEventListener("keydown", (e) => { if (e.key === "Enter" && !client) toggle(); });
 }

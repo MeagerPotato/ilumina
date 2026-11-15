@@ -7,7 +7,7 @@
   "functions": {
     "api/bot.py": {
       "maxDuration": 300,
-      "excludeFiles": "{node_modules/**,dist/**,public/**,src/**,.src/**,*.html,*.json,*.sh,vite.config.js}"
+      "excludeFiles": "{node_modules/**,dist/**,public/**,src/**,.src/**,*.html,package.json,package-lock.json,vercel.json,*.sh,vite.config.js}"
     }
   },
   "redirects": [{ "source": "/app", "destination": "/app/" }]
