@@ -131,7 +131,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     context = LLMContext()
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=SileroVADAnalyzer(),
+            user_turn_strategies=speech.turn_strategies(speech_provider),
+        ),
     )
 
     # Emotion path

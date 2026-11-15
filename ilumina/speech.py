@@ -100,11 +100,17 @@ def services(provider: str):
         # Imported here so a setup without the ElevenLabs extra still runs on Deepgram.
         from pipecat.services.elevenlabs.stt import ElevenLabsRealtimeSTTService
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+        from pipecat.transcriptions.language import Language
 
         stt = ElevenLabsRealtimeSTTService(
             api_key=config.ELEVENLABS_API_KEY,
             # Word timings, for the same measured evidence Flux gives (pace, pauses).
             include_timestamps=True,
+            # English only: left to guess, a short noisy answer can come out in another
+            # language. Background sound is filtered out before the words are read.
+            settings=ElevenLabsRealtimeSTTService.Settings(
+                language=Language.EN, filter_background_audio=True
+            ),
         )
         tts = ElevenLabsTTSService(
             api_key=config.ELEVENLABS_API_KEY,
@@ -120,3 +126,19 @@ def services(provider: str):
         settings=DeepgramTTSService.Settings(voice=config.DEEPGRAM_VOICE_ID),
     )
     return stt, tts
+
+
+def turn_strategies(provider: str):
+    """How a student turn starts, for the user aggregator. None keeps Pipecat's choice.
+
+    Flux decides turns itself. Without it, Pipecat starts a turn on any sound, so a
+    noise could cut the tutor off. With ElevenLabs a turn starts on a heard word instead.
+    """
+    if provider != "elevenlabs":
+        return None
+    from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
+        MinWordsUserTurnStartStrategy,
+    )
+    from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+    return UserTurnStrategies(start=[MinWordsUserTurnStartStrategy(min_words=1)])
