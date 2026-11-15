@@ -35,7 +35,7 @@ uv run --locked bot.py
 ```
 
 1. Open [the Ilumina dashboard](http://localhost:7860/dashboard/), select **Start session**, and allow microphone access. Headphones help keep the tutor’s audio out of your microphone.
-2. Say “I’m solving two x plus three equals eleven,” then try the tutor’s next step aloud. **Heard** shows speech measurements, **Read** shows the latest estimate, and **Adapted** shows the teaching move. Use **Done talking** to end your turn manually.
+2. Say “I’m solving two x plus three equals eleven,” then try the tutor’s next step aloud. **Heard** shows speech measurements, **Read** shows the latest estimate, and **Adapted** shows the teaching move. Use **Done talking** to end your turn manually. For a demo with people talking nearby, turn on **Push to talk** in the header: Ilumina then hears only while you hold Space or the **Hold to talk** button, and letting go sends the turn.
 3. To share your work, select **Turn camera on** and point it at the page before your next turn. Select **End session** when you’re done.
 
 The runner also serves the [Pipecat test client](http://localhost:7860/client/).
