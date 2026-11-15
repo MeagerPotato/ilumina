@@ -171,7 +171,7 @@ acted speech may not carry over to natural speech, or to Urdu.
   0.02 SDs and none change (`tests/test_prosody.py`).
 - **Limits.** All three datasets are acted. Students are subtler, and browser audio goes
   through echo cancellation and automatic gain control, which flattens loudness. The
-  model's evidence is capped at a likelihood ratio of 6 either way, and it is one input
+  model's evidence is capped at a likelihood ratio of 4 either way, and it is one input
   among three. How well it transfers to real tutoring audio is untested; that needs
   labelled student recordings.
 
@@ -289,7 +289,7 @@ has been run.
 | Learning-state shares | voice 0.6, words 0.4 | `fusion.LEARNING_WEIGHTS` |
 | Voice model weight, once the usual is known | frustration 0.8, engagement 0.8, confidence 0.6, confusion none | `fusion.VOICE_MODEL_WEIGHT` |
 | How fast the usual is trusted | population counted as 3 turns; the voice model's weight grows as turns / (turns + 3) | `voice_model.PRIOR_TURNS` |
-| Cap on the voice model's evidence | likelihood ratio between 1/6 and 6 | `voice_model.MAX_RATIO` |
+| Cap on the voice model's evidence | likelihood ratio between 1/4 and 4, and each feature at most 3 spreads from the student's usual (no change on held-out speakers; live audio hit the old cap of 6 on most turns) | `voice_model.MAX_RATIO`, `Z_LIMIT` |
 | Voice model penalty | L2 0.2 (results were flat from 0.05 to 2) | `scripts/train_voice_model.py` |
 
 These should be checked against labelled sessions. A good next step is to record a few
