@@ -1,6 +1,7 @@
 """Ilumina: Ilumina, an emotionally aware voice tutor.
 
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
+              (ElevenLabs Scribe and Flash instead, for a session where Deepgram is down)
 Emotion path: each student turn is read three ways, then joined (ilumina/fusion.py):
               - voice channel: Gemini Decision 1 hears the audio, no words given
               - words channel: Gemini Decision 1 reads the transcript, no audio
@@ -49,8 +50,6 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
-from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.transports.base_transport import (
     BaseTransport,
@@ -60,7 +59,7 @@ from pipecat.transports.base_transport import (
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from pipecat.workers.runner import WorkerRunner
 
-from ilumina import config, memory
+from ilumina import config, memory, speech
 from ilumina.baseline import SpeakerBaseline
 from ilumina.emotion import score_turn
 from ilumina.fusion import fuse, fuse_learning
@@ -113,11 +112,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         logger.warning(f"Could not read memory for the dashboard: {e}")
         remembered = None
 
-    stt = DeepgramFluxSTTService(api_key=config.DEEPGRAM_API_KEY)
-    tts = DeepgramTTSService(
-        api_key=config.DEEPGRAM_API_KEY,
-        settings=DeepgramTTSService.Settings(voice=config.DEEPGRAM_VOICE_ID),
-    )
+    # Deepgram hears and speaks; when it is down, ElevenLabs does for this session.
+    speech_provider, speech_reason = await speech.choose()
+    logger.info(f"Speech: {speech_provider}" + (f" ({speech_reason})" if speech_reason else ""))
+    stt, tts = speech.services(speech_provider)
     llm = GoogleLLMService(
         api_key=config.GOOGLE_API_KEY,
         settings=GoogleLLMService.Settings(
@@ -277,6 +275,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "tutor_model": config.GOOGLE_MODEL,
                     "emotion_model": config.DECISION_MODEL,
                     "camera": config.CAMERA,
+                    "speech": speech.NAMES[speech_provider],
+                    # Why the backup is in use, when it is. Empty for Deepgram.
+                    "speech_note": speech_reason,
                     # Hosted sessions end at the function's time limit; 0 means no limit.
                     "limit_seconds": config.SESSION_SECONDS,
                 }

@@ -8,6 +8,11 @@ load_dotenv(override=True)
 
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 DEEPGRAM_VOICE_ID = os.getenv("DEEPGRAM_VOICE_ID") or "aura-2-helena-en"
+# The backup for speech when Deepgram is down (see ilumina/speech.py). Optional.
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or "EXAVITQu4vr4xnSDxMaL"  # "Sarah"
+# "auto" (Deepgram, ElevenLabs if Deepgram fails), "deepgram" or "elevenlabs".
+SPEECH = (os.getenv("ILUMINA_SPEECH") or "auto").lower()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # Hydrogen starts speaking in about 1.5 s on the demo Mac; Argon took over 4 s.
 GOOGLE_MODEL = os.getenv("GOOGLE_MODEL") or "gemini-4-hydrogen"

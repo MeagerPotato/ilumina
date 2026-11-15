@@ -163,7 +163,7 @@ function renderNow(snapshot) {
   }
 }
 
-// Deepgram's word timings for the turn, as measured. Anything not measured shows a dash.
+// The speech service's word timings for the turn, as measured. Anything not measured shows a dash.
 function setStat(key, value, digits, label) {
   const dd = $(`ev-${key}`), num = dd.querySelector("span");
   $(`ev-${key}-l`).textContent = label;
@@ -628,7 +628,12 @@ function receive(msg) {
       "The reading for this turn failed. Ilumina is using the last state it had." + reason;
     $("scored").textContent = "last reading failed";
   } else if (msg?.type === "session_info") {
-    $("running").textContent = `Pipecat · Deepgram Flux + Aura-2 · ${msg.tutor_model} teaches · ${msg.emotion_model} reads`;
+    // Which service hears and speaks in this session: Deepgram, or ElevenLabs as backup.
+    const speech = msg.speech ?? "Deepgram Flux + Aura-2";
+    // The reason for the backup goes in the footer, not in an alert: the session works.
+    const why = msg.speech_note ? ` (backup: ${msg.speech_note})` : "";
+    $("running").textContent = `Pipecat · ${speech}${why} · ${msg.tutor_model} teaches · ${msg.emotion_model} reads`;
+    $("heard-by").textContent = `last turn, ${speech.split(" ")[0]}`;
     headcam = msg.camera === "gopro";
     if (headcam) $("cam-hint").textContent = "head-worn GoPro";
     startSessionClock(msg.limit_seconds);
