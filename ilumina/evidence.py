@@ -77,8 +77,29 @@ def _count_hedges(words: list[str]) -> int:
     return count
 
 
+def describe_timing(evidence: dict) -> str:
+    """The timing half, for the voice channel: how the turn was paced, not what it said."""
+    parts = [f"{evidence['seconds']} seconds of speech"]
+    if evidence["words_per_minute"] is not None:
+        parts[0] += f" at {evidence['words_per_minute']} words a minute"
+    parts.append(f"longest pause {evidence['longest_pause']} seconds")
+    if evidence.get("silence") is not None:
+        parts.append(f"silent for {evidence['silence']} seconds in all inside the turn")
+    if evidence["waited"] is not None:
+        parts.append(f"started {evidence['waited']} seconds after the tutor finished")
+    return "Measured timing: " + ", ".join(parts) + "."
+
+
+def describe_wording(evidence: dict) -> str:
+    """The wording half, for the words channel: fillers and hedges counted in the transcript."""
+    parts = [f"filler words such as um or uh: {evidence['fillers']}"]
+    if evidence.get("hedges") is not None:
+        parts.append(f"hedges such as maybe or I think: {evidence['hedges']}")
+    return "Counted in the transcript: " + ", ".join(parts) + "."
+
+
 def describe_evidence(evidence: dict) -> str:
-    """The same measurements as one line of plain text, for Decision 1."""
+    """All the measurements as one line of plain text."""
     count = "1 word" if evidence["words"] == 1 else f"{evidence['words']} words"
     parts = [f"{count} in {evidence['seconds']} seconds"]
     if evidence["words_per_minute"] is not None:

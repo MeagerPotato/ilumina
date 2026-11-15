@@ -7,9 +7,14 @@ Built at VexoHacks on Pipecat, with Deepgram for all listening and speaking and 
 ## How it works
 
 - **Voice path.** Browser mic, Deepgram Flux speech to text and turn detection, a Gemini tutor model, Deepgram Aura-2 text to speech.
-- **Emotion path.** The audio of each student turn goes to Gemini Decision 1, which scores confusion, frustration, confidence and engagement with a probability for every rubric level, and names the learning state the turn shows: engaged, confused, frustrated, bored or neutral. The states and rubric wording follow the affect research in [docs/emotion-research.md](docs/emotion-research.md).
-- **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, all the silence inside the answer, filler words, hedges such as "maybe" and how long the student waited before answering. The dashboard shows these numbers, and Decision 1 gets them as one line beside the audio.
-- **Voice features.** From the turn's own audio Ilumina measures pitch, pitch range, whether the voice rises or falls at the end, and loudness. After three turns it also says which of these are clearly different from this student's usual, since people differ in how they normally speak.
+- **Emotion path.** Each student turn is read three ways, and the voice counts most. Audio language models lean on the words when they hear both ([Chen et al. 2025](https://arxiv.org/abs/2510.10444)), so the voice and the words are scored apart:
+  - the *voice channel*: Gemini Decision 1 hears the audio with the measured pitch, loudness and timing, and no transcript;
+  - the *words channel*: Decision 1 reads the conversation and the transcript, with no audio;
+  - the *voice model*: a small word-blind classifier (`ilumina/voice_model.py`) that compares 48 acoustic measurements with this student's usual voice. It was trained on 10,224 acted clips from CREMA-D, EARS and RAVDESS (five emotions; CREMA-D's actors say the same neutral sentences in every emotion, so the model learns the sound of the voice, not the words). EARS and RAVDESS are licensed for non-commercial use only, so treat the model that way; see the docs to retrain on CREMA-D alone.
+
+  Code joins them (`ilumina/fusion.py`), weighted toward the voice, into scores for confusion, frustration, confidence and engagement with a probability for every level, and a learning state: engaged, confused, frustrated, bored or neutral. The research, the test results and the weights are in [docs/emotion-research.md](docs/emotion-research.md).
+- **Voice evidence.** Deepgram Flux sends word timings with every finished turn. From them Ilumina measures speaking pace, the longest pause, all the silence inside the answer, filler words, hedges such as "maybe" and how long the student waited before answering. The dashboard shows these numbers. The voice channel gets the timing, and the words channel gets the filler and hedge counts.
+- **Voice features.** From the turn's own audio Ilumina measures an eGeMAPS-style set of 48 features: pitch and its movement, loudness, voice quality (jitter, shimmer, harmonics-to-noise ratio), spectral balance and rhythm. The dashboard shows pitch, pitch range, whether the voice rises or falls at the end, and loudness. After three turns it also says which of these are clearly different from this student's usual, since people differ in how they normally speak.
 - **Mic meter.** Once a second the bot tells the dashboard how loud the microphone is, as speech to text gets it, and logs it every 5 seconds. A silent microphone shows as "Mic is silent".
 - **Where the conversation is.** A bar at the top of the dashboard says whose turn it is: "Your turn", "Hearing you" with the words heard so far, "Heard you" while the tutor thinks, and "Ilumina is speaking". It follows the bot's own events. In a loud room Deepgram Flux can wait a long time to be sure a turn is over, so "Done talking" switches the microphone to silence until the tutor answers, which ends the turn at once.
 - **State tracker.** Plain Python that keeps a probability for every level and folds in each turn's probabilities with Bayes' rule, so it always knows how sure it is. States persist differently (boredom lingers, frustration fades faster), and one-word turns count for less. A single odd turn is a blip. Two agreeing turns, or one very confident reading, is a trend. Confusion that lasts three turns is flagged, because brief confusion is part of learning and lasting confusion is not.
@@ -92,11 +97,14 @@ All in `.env`:
 | File | Job |
 | --- | --- |
 | `bot.py` | The Pipecat pipeline and wiring |
-| `ilumina/emotion.py` | Decision 1 rubrics and the scoring call |
+| `ilumina/emotion.py` | Decision 1 rubrics and the two scoring calls: the voice channel (audio, no words) and the words channel (words, no audio) |
+| `ilumina/acoustic.py` | The 48 acoustic features of one turn, in numpy: pitch, loudness, voice quality, spectral balance, rhythm |
+| `ilumina/voice_model.py` | The word-blind voice model: reads the acoustic features against this student's usual voice. Its weights are `voice_model.json` |
+| `ilumina/fusion.py` | Joins the voice channel, the words channel and the voice model into one reading per turn |
 | `ilumina/evidence.py` | Pace, pauses, silence, fillers, hedges and wait for one turn, from Deepgram's word timings |
-| `ilumina/prosody.py` | Pitch, pitch range, end rise or fall, and loudness for one turn, from its audio |
+| `ilumina/prosody.py` | The dashboard's pitch, pitch range, end rise or fall, and loudness for one turn |
 | `ilumina/baseline.py` | This student's usual voice over the session, and how each turn differs from it |
-| `ilumina/measured.py` | Puts a turn's measurements together for Decision 1 and decides how much the turn counts |
+| `ilumina/measured.py` | Puts a turn's measurements together for each channel and decides how much the turn counts |
 | `ilumina/state.py` | State and learning-state trackers, no model calls, reusable outside tutoring |
 | `ilumina/headcam.py` | Runs the GoPro feed while the student has the camera on, and hands out its newest frame |
 | `ilumina/processors.py` | Measures each turn's voice evidence, hands the camera picture and the state note to the tutor before each reply, and reads its teaching move after |
@@ -109,6 +117,9 @@ All in `.env`:
 | `dashboard/` | The live page. `vendor/pipecat.js` is `@pipecat-ai/client-js` 1.16.0, `@pipecat-ai/small-webrtc-transport` 1.11.2 and `@pipecat-ai/websocket-transport` 1.8.2 bundled with esbuild 0.25.0 |
 | `api/bot.py` | The hosted bot: a Vercel Function that checks the passcode and runs `bot.py` over a WebSocket |
 | `deploy/vercel/` | Files uploaded with each Vercel deployment; see [docs/hosting.md](docs/hosting.md) |
+| `scripts/train_voice_model.py` | Downloads CREMA-D, tests the voice model on speakers and datasets it never heard, and writes `voice_model.json` |
+| `scripts/fetch_extra_speech.py` | Fetches the EARS and RAVDESS clips (five emotions) the model also trains on. Needs FFmpeg |
+| `scripts/eval_voice_channel.py` | Measures how much each Decision 1 channel hears the voice, on clips whose words carry no emotion. Needs `GOOGLE_API_KEY` |
 
 ## Tests
 

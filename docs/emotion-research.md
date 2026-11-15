@@ -7,26 +7,185 @@ tuning rather than a published value.
 
 ## The pipeline for one student turn
 
+Every turn is read in three separate ways, and the voice counts most.
+
 1. **Measured evidence (no model).**
    - From Deepgram Flux word timings (`ilumina/evidence.py`): pace, longest pause,
      total silence inside the answer, filler words, hedges such as "maybe" or "I think",
      and how long the student waited before answering.
-   - From the turn's own audio (`ilumina/prosody.py`): pitch level, pitch range, pitch
-     movement, the rise or fall over the last half second, loudness and its spread, and
-     the voiced share of the time they were talking.
+   - From the turn's own audio (`ilumina/acoustic.py`, `ilumina/prosody.py`): an
+     eGeMAPS-style set of 48 acoustic features covering pitch, loudness, voice quality,
+     spectral balance and rhythm, plus the dashboard's pitch, range, end rise or fall
+     and loudness.
    - Against the student's own usual this session (`ilumina/baseline.py`): after three
-     turns, which of those measurements are clearly away from their median.
-2. **Gemini Decision 1 (`ilumina/emotion.py`).** One call with the conversation, the
-   audio, and the measurements as plain text. Four score questions (confusion,
-   frustration, confidence, engagement) on five-level rubrics, and one choice question
-   for the learning state (engaged, confused, frustrated, bored, neutral).
-3. **Tracking over turns (`ilumina/state.py`).** Bayesian smoothing of the calibrated
+     turns, which measurements are clearly away from their median.
+2. **Three readings (`ilumina/emotion.py`, `ilumina/voice_model.py`).**
+   - *Voice channel:* Gemini Decision 1 hears the audio with the timing and acoustic
+     measurements, and **no transcript or conversation**. Its rubrics describe only
+     how a voice sounds.
+   - *Words channel:* Gemini Decision 1 reads the conversation and the transcript, with
+     **no audio**, plus the filler and hedge counts.
+   - *Voice model:* a small word-blind classifier that reads the 48 acoustic features
+     against the student's usual voice. Trained on acted speech from CREMA-D, EARS and
+     RAVDESS; see the numbers below.
+   The two Decision 1 calls run at the same time. If one fails, the turn uses the other.
+3. **Fusion (`ilumina/fusion.py`).** A weighted logarithmic opinion pool of the two
+   channels, weighted toward the voice, and then the voice model's likelihood ratio.
+4. **Tracking over turns (`ilumina/state.py`).** Bayesian smoothing of the fused
    probabilities, with a different persistence for each state, and a confirmed level
    that only moves when the probability has clearly moved.
-4. **The tutor note.** One line, such as
+5. **The tutor note.** One line, such as
    `confusion high (for 3 turns), frustration low (unsure). Overall the student sounds confused.`
 
-## What the research says, and what we did with it
+## Why the voice is read on its own
+
+- **Chen, J., Guo, Z., Chun, J., Wang, P., Perrault, A. & Elsner, M. (2025). Do audio
+  LLMs really LISTEN, or just transcribe? Measuring lexical vs. acoustic emotion cues
+  reliance.** [arXiv:2510.10444](https://arxiv.org/abs/2510.10444).
+  On their LISTEN benchmark, six audio language models, Gemini 2.5 Flash and Pro among
+  them, showed "a consistent lexical dominance". They predicted "neutral" when the
+  words were neutral or absent, even when the voice was emotional. When the words were
+  neutral, Gemini 2.5 Pro was right 34.9% of the time from audio alone, and some models
+  did *worse* once the transcript was added (Qwen2.5-Omni-7B fell from 34.0% to 19.8%).
+  On non-verbal sounds such as sighs and laughs, the models were close to chance.
+  *Used for:* this matches what live sessions showed, readings that follow the words.
+  The voice and the words are now scored in separate calls, and code decides how much
+  each counts.
+  It is also why a word-blind model sits beside Decision 1: the paper found no prompt
+  that fixes the bias, so we do not rely on asking the model to ignore the words.
+- **Wagner, J. et al. (2023). Dawn of the transformer era in speech emotion
+  recognition: closing the valence gap. *IEEE TPAMI*, 45(9), 10745–10759.
+  doi:[10.1109/TPAMI.2023.3263585](https://doi.org/10.1109/TPAMI.2023.3263585)**
+  Their state-of-the-art valence results came from "implicit linguistic information"
+  that the transformer learned during fine-tuning. A speech model's
+  pleasant-or-unpleasant reading can quietly be a reading of the words.
+  *Used for:* the voice model uses hand-built acoustic features, which cannot pick up
+  words, rather than a transformer speech model.
+- **Eyben, F. et al. (2016). The Geneva Minimalistic Acoustic Parameter Set (GeMAPS)
+  for voice research and affective computing. *IEEE Transactions on Affective
+  Computing*. doi:[10.1109/TAFFC.2015.2457417](https://doi.org/10.1109/TAFFC.2015.2457417)**
+  ([PDF](https://msp.utdallas.edu/publications/Eyben_2016.pdf))
+  The standard small acoustic set for affect: frequency (pitch, jitter), energy
+  (loudness, shimmer, harmonics-to-noise ratio), spectral balance (alpha ratio,
+  Hammarberg index, spectral slopes, MFCC 1–4, flux) and temporal parameters (voiced
+  and unvoiced stretch lengths, loudness peak rate). The parameters were chosen for
+  their "potential to index affective physiological changes in voice production".
+  *Used for:* `ilumina/acoustic.py` computes a numpy version of those groups (48
+  features). It is our own implementation, not openSMILE, whose licence rules out use
+  in a product. Jitter and shimmer are measured frame to frame, not cycle to cycle.
+- **Pekrun, R. (2006). The control-value theory of achievement emotions. *Educational
+  Psychology Review*, 18, 315–341.
+  doi:[10.1007/s10648-006-9029-9](https://doi.org/10.1007/s10648-006-9029-9)**
+  Sorts learning emotions by valence and activation. Anger is negative and
+  activating, boredom negative and deactivating, and anxiety and hopelessness go
+  with low perceived control.
+  *Used for:* turning the voice model's acted emotions into tutoring evidence. An
+  angrier voice than usual raises frustration. A flatter voice (neutral or sad
+  profile) lowers engagement. A more fearful or sad voice lowers confidence. The voice
+  model says nothing about confusion.
+- **Genest, C. & Zidek, J.V. (1986). Combining probability distributions: a critique
+  and an annotated bibliography. *Statistical Science*, 1(1), 114–148.** The
+  logarithmic opinion pool (a weighted geometric mean of the distributions) is the
+  standard way to join calibrated forecasts. *Used for:* `ilumina/fusion.py`.
+
+## The voice model, tested
+
+- **Data:** 10,224 clips from 222 speakers, five emotions only (angry, fearful, happy,
+  neutral, sad). Disgust, calm and surprise are left out.
+  - CREMA-D (Cao, H. et al. 2014. *IEEE Transactions on Affective Computing*, 5(4),
+    377–390. doi:[10.1109/TAFFC.2014.2336244](https://doi.org/10.1109/TAFFC.2014.2336244);
+    [repository](https://github.com/CheyneyComputerScience/CREMA-D); Open Database
+    License). 91 actors say 12 neutral sentences in each emotion, so the words cannot
+    give the emotion away. 6,170 clips.
+  - EARS (Richter, J. et al. 2024. EARS: an anechoic fullband speech dataset benchmarked
+    for speech enhancement and dereverberation. *Interspeech 2024*;
+    [repository](https://github.com/facebookresearch/ears_dataset); CC BY-NC 4.0). 107
+    speakers reading and improvising in anger, fear, neutral and sadness (EARS has no
+    plain "happy"). Recordings are cut at pauses into 3,203 clips.
+  - RAVDESS (Livingstone, S.R. & Russo, F.A. 2018. *PLoS ONE*, 13(5), e0196391.
+    doi:[10.1371/journal.pone.0196391](https://doi.org/10.1371/journal.pone.0196391);
+    CC BY-NC-SA 4.0). 24 actors, two neutral sentences. 851 clips.
+  - `scripts/fetch_extra_speech.py` fetches EARS and RAVDESS. It was tested here on
+    EARS; RAVDESS's official Zenodo download is blocked from this environment, so the
+    clips used came from a GitHub mirror with the same 1,440 files.
+- **Licence.** EARS and RAVDESS allow non-commercial use only (RAVDESS also asks for
+  share-alike), and we cannot confirm whether trained weights count as an adapted work.
+  Treat `voice_model.json` as non-commercial. For commercial use, retrain on CREMA-D
+  alone: `uv run scripts/train_voice_model.py crema/` (results for that model are below).
+- **Left out after testing.** TESS (2 speakers; its licence forbids derivatives) and
+  the URDU dataset (its speakers each have one emotion, so a speaker's usual voice is
+  that emotion and per-speaker normalisation erases it; it also has no formal licence).
+- **Tests.** Five folds that hold out whole speakers; a CREMA-D test that also holds out
+  the sentence; and the hardest, a whole dataset held out, so new voices, microphones and
+  rooms. Features are normalised the way a live session does it, each clip only against
+  the same speaker's earlier clips. The numbers are stored in `ilumina/voice_model.json`
+  under `tested`.
+
+| Shipped model, tested on | Clips | Accuracy (chance 20%) | Angry vs the rest (AUC) | Lively vs flat (AUC) | Calibration error |
+| --- | --- | --- | --- | --- | --- |
+| New speakers, all three datasets | 10,224 | 59.0% | 0.947 | 0.906 | 0.014 |
+| New speakers, CREMA-D | 6,170 | 60.0% | 0.945 | 0.910 | 0.025 |
+| New speakers, EARS (4 emotions, chance 25%) | 3,203 | 59.2% | 0.956 | 0.911 | 0.024 |
+| New speakers, RAVDESS | 851 | 55.5% | 0.930 | 0.903 | 0.071 |
+| New speakers and new sentences, CREMA-D | 6,170 | 57.2% | 0.934 | 0.896 | 0.023 |
+
+Accuracy is the average of the per-emotion recalls, so every emotion counts the same.
+Recalls for new speakers across all three datasets: angry 77.7%, sad 57.8%, neutral
+58.5%, happy 55.6%, fearful 45.4%. An AUC is the chance that a random clip of the first
+kind scores above a random clip of the second kind (0.5 is chance). "Lively" is angry,
+fearful or happy; "flat" is neutral or sad. The calibration error is the gap between
+the stated probability and how often the model was right, averaged over ten bins; near
+0 means its probabilities can be taken at face value, which the fusion relies on. For
+reference, human listeners in the CREMA-D paper recognised the intended emotion from
+audio alone 40.9% of the time across six emotions; that is a different task.
+
+**Why the extra datasets.** A student on a laptop microphone is a new dataset to the
+model, so the test that matters most holds a whole dataset out. Training on more
+datasets helped there, and cost some accuracy on CREMA-D itself:
+
+| Held-out dataset | Trained on CREMA-D only | Trained on the other datasets |
+| --- | --- | --- |
+| EARS (all 3,203 clips) | 39.8% accuracy, angry AUC 0.867, lively AUC 0.855, calibration error 0.288 | 43.3%, 0.871, 0.872, 0.218 (CREMA-D + RAVDESS) |
+| EARS improvised speech only | 41.5%, angry AUC 0.860 | 44.0%, 0.860 (CREMA-D + RAVDESS) |
+| RAVDESS | 48.8%, 0.916, 0.829, 0.265 | 49.1%, 0.904, 0.884, 0.165 (CREMA-D + EARS) |
+| TESS (never trained on) | 65.3%, 0.936, 0.984, 0.067 | 72.4%, 0.961, 1.000, 0.056 (all three) |
+| CREMA-D, new speakers | 63.7%, 0.949, 0.919, 0.025 | 60.0%, 0.945, 0.910, 0.025 (all three) |
+
+The gain on unfamiliar recordings is modest in accuracy (0.3 to 7.1 points) and
+clearer in separating lively from flat voices (up to 0.055 AUC) and in calibration
+(error down by 16% to 38%). Telling angry from the rest held steady at
+0.87–0.96 everywhere except one place: on URDU's spontaneous talk-show speech, a
+CREMA-D model was at chance (angry AUC 0.52 without per-speaker normalisation), so
+acted speech may not carry over to natural speech, or to Urdu.
+
+- **Speaker normalisation matters.** On CREMA-D with new speakers, comparing each clip
+  only with the population gave 57.8% accuracy. Comparing it with the speaker's own
+  earlier clips, as a live session does, gave 63.7%. Using all of the speaker's clips,
+  which a live session cannot, gave 66.1%. In a session the usual starts at the
+  population's and moves to the student's own as they talk (`SpeakerNormaliser`), and
+  the voice model's evidence counts for less until then (`maturity`).
+- **Sample rate.** Everything is measured at 16 kHz, the rate the model learned from.
+  Pipecat's audio buffer hands each turn over at the output rate (24 kHz). Before this
+  was fixed, 24 kHz turns read up to 0.8 population SDs off on quiet-loudness features
+  and changed the top emotion on 4 of 50 CREMA-D clips; after it, the largest shift is
+  0.02 SDs and none change (`tests/test_prosody.py`).
+- **Limits.** All three datasets are acted. Students are subtler, and browser audio goes
+  through echo cancellation and automatic gain control, which flattens loudness. The
+  model's evidence is capped at a likelihood ratio of 6 either way, and it is one input
+  among three. How well it transfers to real tutoring audio is untested; that needs
+  labelled student recordings.
+
+## Measuring the Decision 1 channels
+
+`scripts/eval_voice_channel.py` sends a balanced CREMA-D sample through the voice
+channel, the words channel and the voice model. It reports how well each separates
+angry clips (frustration) and lively clips from flat ones (engagement). The sentences
+are neutral, so a words channel near 0.5 AUC and a voice channel well above it would
+show the split works. It needs `GOOGLE_API_KEY` and has not been run yet, because this
+environment has no key. The channel weights in `fusion.py` are our choice until it
+has been run.
+
+## Earlier research behind the rubrics and the tracker
 
 ### Which states matter for learning
 
@@ -126,9 +285,17 @@ tuning rather than a published value.
 | Level change | new band at 60%, or 50% with this turn agreeing, or one reading 80% sure | `state.SWITCH_AT`, `MAJORITY`, `STRONG_CONFIDENCE` |
 | Usual-voice thresholds | pace ±25%, pitch ±2 semitones, range ±40%, loudness ±4 dB, pauses and waits ±0.75–1 s | `baseline._CHECKS` |
 | Long confusion | 3 turns | `state.LONG_CONFUSION_TURNS` |
+| Voice and words channel shares | voice 0.65, words 0.35 for frustration, confidence and engagement; voice 0.55, words 0.45 for confusion | `fusion.CHANNEL_WEIGHTS` |
+| Learning-state shares | voice 0.6, words 0.4 | `fusion.LEARNING_WEIGHTS` |
+| Voice model weight, once the usual is known | frustration 0.8, engagement 0.8, confidence 0.6, confusion none | `fusion.VOICE_MODEL_WEIGHT` |
+| How fast the usual is trusted | population counted as 3 turns; the voice model's weight grows as turns / (turns + 3) | `voice_model.PRIOR_TURNS` |
+| Cap on the voice model's evidence | likelihood ratio between 1/6 and 6 | `voice_model.MAX_RATIO` |
+| Voice model penalty | L2 0.2 (results were flat from 0.05 to 2) | `scripts/train_voice_model.py` |
 
 These should be checked against labelled sessions. A good next step is to record a few
-sessions, label turns by hand with the BROMP categories, and compare.
+sessions, label turns by hand with the BROMP categories, and compare. The channel shares
+put the voice first on purpose (see Chen et al. above); `scripts/eval_voice_channel.py`
+measures each channel so they can be set from data.
 
 ## What the dashboard receives
 
@@ -143,5 +310,8 @@ sessions, label turns by hand with the BROMP categories, and compare.
 | `voice` | This turn's measured voice features (`pitch_hz`, `pitch_range`, `pitch_movement`, `end_change`, `loudness`, `loudness_spread`, `voiced_share`), or `null` |
 | `vs_usual` | Clear changes from the student's usual, such as `{"pace": "slower"}`; empty for the first three turns |
 | `weight` | How much this turn counted, 1 or 0.5 |
+| `dimensions.<name>.sources` | Where this turn's reading came from: the voice channel's and the words channel's own 0-to-1 readings (`voice`, `words`), and the voice model's likelihood ratio against the student's usual (`voice_model`; 1 means it sounded like their usual, above 1 means more of that dimension's cue: angrier for frustration, flatter for engagement, more fearful or sad for confidence). A channel that did not answer is missing |
+| `acoustic` | The voice model's reading of this turn, or `null`: `emotions` (probability of angry, fearful, happy, neutral and sad), `ratios` for frustration, engagement and confidence, and `maturity` (0 to 1, how well the student's usual is known yet) |
+| `channels` | Which Decision 1 channels answered this turn, such as `["voice", "words"]` |
 
 `voice_evidence` adds `silence` (seconds), `silence_share` (0 to 1) and `hedges` (count).

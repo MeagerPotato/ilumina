@@ -134,23 +134,46 @@ def test_unreadable_probability_keys_fall_back_to_the_api_confidence():
     assert parse_answers({"confusion": answer})["confusion"].confidence == 0.6
 
 
-def test_the_scorer_gets_the_voice_and_the_conversation_and_is_told_to_weigh_both():
-    sent = {}
+def test_the_voice_channel_hears_the_audio_without_the_words():
+    calls = []
 
     async def create(**kwargs):
-        sent.update(kwargs)
+        calls.append(kwargs)
         return SimpleNamespace(answers={})
 
     client = SimpleNamespace(aio=SimpleNamespace(decisions=SimpleNamespace(create=create)))
     talk = "Tutor: What is 3x when x is 4?\nStudent: um, seven?"
-    asyncio.run(score_turn(client, "gemini-decision-1", b"RIFF", talk))
-
-    text, audio = sent["input"]
-    assert text["type"] == "text" and talk in text["text"]
+    channels = asyncio.run(score_turn(client, "gemini-decision-1", b"RIFF", talk))
+    assert set(channels) == {"voice", "words"}
+    voice = next(c for c in calls if len(c["input"]) == 2)
+    words = next(c for c in calls if len(c["input"]) == 1)
+    text, audio = voice["input"]
     assert audio["type"] == "audio" and audio["mime_type"] == "audio/wav"
-    for question in sent["questions"].values():
-        assert "how they sound" in question["instructions"]
-        assert "what they say" in question["instructions"]
+    assert "seven" not in text["text"] and "3x" not in text["text"]
+    for question in voice["questions"].values():
+        assert "only to how the student's voice sounds" in question["instructions"]
+        assert "Do not use what the words mean" in question["instructions"]
+    assert talk in words["input"][0]["text"]
+    for question in words["questions"].values():
+        assert "Judge only from the words" in question["instructions"]
+
+
+def test_one_failed_channel_does_not_cost_the_turn():
+    async def create(**kwargs):
+        if len(kwargs["input"]) == 1:
+            raise TimeoutError("words channel slow")
+        return SimpleNamespace(answers={})
+
+    client = SimpleNamespace(aio=SimpleNamespace(decisions=SimpleNamespace(create=create)))
+    channels = asyncio.run(score_turn(client, "m", b"RIFF", "Tutor: hi"))
+    assert set(channels) == {"voice"}
+
+    async def broken(**kwargs):
+        raise TimeoutError("down")
+
+    client = SimpleNamespace(aio=SimpleNamespace(decisions=SimpleNamespace(create=broken)))
+    with pytest.raises(TimeoutError):
+        asyncio.run(score_turn(client, "m", b"RIFF", "Tutor: hi"))
 
 
 def probs(*levels: float) -> Reading:

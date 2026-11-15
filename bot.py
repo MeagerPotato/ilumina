@@ -1,9 +1,11 @@
 """Ilumina: Ilumina, an emotionally aware voice tutor.
 
 Voice path:   browser -> Deepgram Flux STT -> Gemini tutor -> Deepgram Aura-2 TTS -> browser
-Emotion path: each student turn's audio, its measured voice features and how they
-              compare with the student's usual -> Gemini Decision 1 -> StateTracker
-              (Bayesian smoothing with per-state persistence)
+Emotion path: each student turn is read three ways, then joined (ilumina/fusion.py):
+              - voice channel: Gemini Decision 1 hears the audio, no words given
+              - words channel: Gemini Decision 1 reads the transcript, no audio
+              - voice model: word-blind acoustic model against the student's usual
+              -> StateTracker (Bayesian smoothing with per-state persistence)
               -> a state note for the tutor and a live message for the dashboard
 Evidence:     Deepgram Flux word timings -> pace, pauses, fillers and wait per turn
               -> shown on the dashboard and given to Decision 1 beside the audio
@@ -61,6 +63,7 @@ from pipecat.workers.runner import WorkerRunner
 from ilumina import config, memory
 from ilumina.baseline import SpeakerBaseline
 from ilumina.emotion import score_turn
+from ilumina.fusion import fuse, fuse_learning
 from ilumina.measured import measure_turn
 from ilumina.processors import (
     CameraView,
@@ -71,6 +74,7 @@ from ilumina.processors import (
 )
 from ilumina.prompts import GREETING_NOTE, GREETING_WITH_MEMORY_NOTE, TUTOR_SYSTEM_PROMPT
 from ilumina.state import LearningStateTracker, StateTracker, describe
+from ilumina.voice_model import VoiceModel
 
 headcam = None
 if config.CAMERA == "gopro":
@@ -136,6 +140,11 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     tracker = StateTracker()
     learning_tracker = LearningStateTracker()
     baseline = SpeakerBaseline()  # this student's usual voice, for this session only
+    try:
+        voice_model = VoiceModel()  # word-blind; learns this student's usual as they talk
+    except Exception as e:  # noqa: BLE001 - the two Decision 1 channels still run without it
+        logger.warning(f"Voice model not loaded, scoring without it: {e}")
+        voice_model = None
     voice_evidence = VoiceEvidence()
     state_injector = StudentStateInjector(wait_seconds=config.STATE_WAIT_SECONDS)
     audio_buffer = AudioBufferProcessor(enable_turn_audio=True, auto_start_recording=True)
@@ -174,15 +183,19 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         try:
             wav = pcm_to_wav(audio, sample_rate, num_channels)
             evidence = voice_evidence.take()
+            transcript = voice_evidence.take_text()
             started = time.monotonic()
-            # A few milliseconds of numpy; off the event loop so audio keeps flowing.
-            measured = await asyncio.to_thread(measure_turn, wav, evidence, baseline)
-            readings, learning = await score_turn(
+            # Tens of milliseconds of numpy; off the event loop so audio keeps flowing.
+            measured = await asyncio.to_thread(measure_turn, wav, evidence, baseline, voice_model)
+            # The voice channel (audio, no words) and the words channel (no audio) at once.
+            channels = await score_turn(
                 decisions_client,
                 config.DECISION_MODEL,
                 wav,
                 recent_text(context),
-                measured["text"],
+                voice_measured=measured["voice_text"],
+                transcript=transcript,
+                words_measured=measured["words_text"],
             )
             scored_ms = round((time.monotonic() - started) * 1000)
         except Exception as e:  # noqa: BLE001 - any emotion failure must not stop the voice loop
@@ -191,9 +204,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                 RTVIServerMessageFrame(data={"type": "student_state_error", "error": str(e)})
             )
             return
+        readings, sources = fuse(channels, measured["acoustic"])
         if not readings:
             return
         snapshot = tracker.update(readings, weight=measured["weight"])
+        for name, source in sources.items():
+            if name in snapshot["dimensions"]:
+                snapshot["dimensions"][name]["sources"] = source
+        learning = fuse_learning(channels)
         if learning:
             learning_state = learning_tracker.update(learning, weight=measured["weight"])
             if learning_state:
@@ -220,6 +238,9 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
                     "voice": measured["voice"],
                     "vs_usual": measured["vs_usual"],
                     "weight": measured["weight"],
+                    # The word-blind voice model's reading, and which channels answered.
+                    "acoustic": measured["acoustic"],
+                    "channels": sorted(channels),
                     **snapshot,
                 }
             )
