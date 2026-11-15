@@ -30,11 +30,16 @@ app = FastAPI()
 
 
 def _check(passcode: str) -> int:
-    """200 if the passcode is right, 401 if not, 503 if the app is not set up."""
-    expected = os.getenv("ILUMINA_PASSCODE", "")
-    keys = os.getenv("DEEPGRAM_API_KEY") and os.getenv("GOOGLE_API_KEY")
-    if not expected or not keys:
-        return 503  # never run open, and never start a bot that cannot speak
+    """200 if the passcode is right or none is set, 401 if wrong, 503 if keys are missing.
+
+    With ILUMINA_PASSCODE unset or "off", anyone can start a session, and each one
+    spends the project's Deepgram and Gemini credits.
+    """
+    if not (os.getenv("DEEPGRAM_API_KEY") and os.getenv("GOOGLE_API_KEY")):
+        return 503  # never start a bot that cannot speak
+    expected = os.getenv("ILUMINA_PASSCODE", "").strip()
+    if expected.lower() in ("", "off"):
+        return 200
     if not hmac.compare_digest(passcode.encode(), expected.encode()):
         return 401
     return 200

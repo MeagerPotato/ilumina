@@ -10,7 +10,8 @@ The whole demo runs on one Vercel project (`ilumina`):
 
 ## How a hosted session works
 
-1. The dashboard sees it is served at `/app/` and asks for the passcode.
+1. The dashboard sees it is served at `/app/`, wakes the function and asks it whether a
+   passcode is needed. It shows the passcode box only if one is.
 2. It POSTs the passcode to `/api/bot`. Wrong passcode: 401. Keys or passcode not set: 503.
 3. It opens a WebSocket to `/api/bot?passcode=...`. The function runs the same pipeline
    as a local run, with Pipecat's WebSocket transport instead of WebRTC.
@@ -36,7 +37,7 @@ The GoPro head camera needs USB on a Mac, so it stays a local option
 | --- | --- |
 | `DEEPGRAM_API_KEY` | Deepgram key (sensitive) |
 | `GOOGLE_API_KEY` | Google AI Studio key (sensitive) |
-| `ILUMINA_PASSCODE` | What visitors type before "Start session" (sensitive). Unset means nobody can start a session |
+| `ILUMINA_PASSCODE` | What visitors type before "Start session" (sensitive). Unset or `off` means anyone can start a session, which spends the Deepgram and Gemini credits |
 | `ILUMINA_SESSION_SECONDS` | `285` on Hobby (function max 300). Raise it with `maxDuration` on Pro |
 
 `GOOGLE_MODEL`, `DECISION_MODEL` and `DEEPGRAM_VOICE_ID` work as in `.env`.
