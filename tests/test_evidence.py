@@ -14,7 +14,7 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
 from ilumina import processors
 from ilumina.emotion import score_turn
-from ilumina.evidence import describe_evidence, voice_evidence
+from ilumina.evidence import describe_evidence, describe_timing, describe_wording, voice_evidence
 from ilumina.processors import MicLevel, VoiceEvidence
 
 
@@ -163,18 +163,36 @@ def test_a_turn_without_word_timings_passes_through_and_reports_nothing():
     assert out[-1] is frame and evidence.take() is None
 
 
-def test_the_scorer_gets_the_measurements_beside_the_conversation():
+def test_each_channel_gets_only_its_own_measurements():
     class Decisions:
+        def __init__(self):
+            self.calls = []
+
         async def create(self, **kwargs):
-            self.kwargs = kwargs
+            self.calls.append(kwargs)
             return type("Response", (), {"answers": {}})()
 
     decisions = Decisions()
     client = type("Client", (), {"aio": type("Aio", (), {"decisions": decisions})()})()
-    line = describe_evidence(voice_evidence(HESITANT))
-    asyncio.run(score_turn(client, "gemini-decision-1", b"RIFF", "Tutor: What is two x?", line))
-    text = decisions.kwargs["input"][0]["text"]
-    assert text.endswith(line) and "Tutor: What is two x?" in text
+    evidence = voice_evidence(HESITANT)
+    timing, wording = describe_timing(evidence), describe_wording(evidence)
+    asyncio.run(
+        score_turn(
+            client, "gemini-decision-1", b"RIFF", "Tutor: What is two x?",
+            voice_measured=timing, transcript="um I think maybe four", words_measured=wording,
+        )
+    )  # fmt: skip
+    by_kind = {
+        "voice" if any(c["type"] == "audio" for c in call["input"]) else "words": call
+        for call in decisions.calls
+    }
+    voice_text = by_kind["voice"]["input"][0]["text"]
+    words_text = by_kind["words"]["input"][0]["text"]
+    assert voice_text.endswith(timing) and "two x" not in voice_text and "maybe" not in voice_text
+    assert "hedges" not in voice_text and "fillers" not in timing
+    assert "Tutor: What is two x?" in words_text and "um I think maybe four" in words_text
+    assert words_text.endswith(wording) and "seconds" not in words_text
+    assert len(by_kind["words"]["input"]) == 1  # the words channel never gets the audio
 
 
 def sound(peak: int) -> InputAudioRawFrame:

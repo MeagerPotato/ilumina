@@ -183,11 +183,17 @@ class VoiceEvidence(FrameProcessor):
         self._tutor_stopped_at: float | None = None  # set when the tutor finishes by itself
         self._waited: float | None = None
         self._latest: dict | None = None
+        self._latest_text = ""
 
     def take(self) -> dict | None:
         """The newest turn's evidence, once. A later turn never gets an old one."""
         latest, self._latest = self._latest, None
         return latest
+
+    def take_text(self) -> str:
+        """The newest turn's transcript, once, for the words channel. Never logged."""
+        text, self._latest_text = self._latest_text, ""
+        return text
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -206,7 +212,9 @@ class VoiceEvidence(FrameProcessor):
             stopped, self._tutor_stopped_at = self._tutor_stopped_at, None
             self._waited = None if stopped is None else time.monotonic() - stopped
             self._latest = None  # evidence nobody took belongs to an earlier turn
+            self._latest_text = ""
         elif isinstance(frame, TranscriptionFrame):
+            self._latest_text = frame.text or ""
             try:
                 self._latest = voice_evidence(frame.result, self._waited)
             except Exception as e:  # noqa: BLE001 - evidence is a bonus, the turn goes on
