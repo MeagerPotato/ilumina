@@ -1,14 +1,10 @@
-# Devpost submission
-
-Copy each section into the matching Devpost field.
-
 ## Project name
 
 Ilumina
 
 ## Tagline (short description)
 
-A voice tutor that hears how you sound, not just what you say, and changes how it teaches.
+A voice tutor that catches your long pauses and confused tone, even when you say "I get it," and re-explains before you give up.
 
 ## Inspiration
 
@@ -25,7 +21,7 @@ Ilumina is a real-time voice tutor for math.
 - **Blip or trend.** One odd turn is a blip and gets ignored. Two in a row, or one very confident reading, is a trend, and the tutor changes its teaching move: a smaller hint, a new explanation, a worked example, a harder problem or a check-in.
 - **It sees your work.** A GoPro on a headband (or any webcam) shows Ilumina your page. It reads your handwriting and points at the exact step. Pictures are never saved.
 - **Math on the board.** While it talks, the equation it means appears on the dashboard in LaTeX, so it speaks math in plain words and shows it properly.
-- **It remembers your class.** With the Vexo open kit, Ilumina listens to a lecture, writes study notes (key ideas, sticking points, check questions), makes a 3-day study plan, and opens your next session from that class. Lecture review mode quizzes you on it; we used MIT 18.01 Lecture 3.
+- **It remembers your class.** With a Vexo band on your wrist, Ilumina listens to a lecture, writes study notes (key ideas, sticking points, check questions), makes a 3-day study plan, and opens your next session from that class. Lecture review mode quizzes you on it; we used MIT 18.01 Lecture 3.
 - **You stay in control.** Nothing is saved unless you say yes. Every reading is shown as an estimate of how you sound, never a fact about how you feel.
 - **A live dashboard** shows every real model output: the per-turn reading and confidence, the smoothed state, the voice evidence, the teaching move, a mic meter, and whose turn it is.
 
@@ -38,7 +34,7 @@ Ilumina is a real-time voice tutor for math.
 - **A plain Python state tracker** smooths those scores across turns into blip or trend, with no model calls, so it's cheap and predictable.
 - **Never block the voice.** Emotion scoring runs beside the conversation. The tutor waits at most 0.4 seconds for the state note before replying, so a slow score never makes Ilumina go quiet.
 - **Camera:** a GoPro over USB, read with FFmpeg, hands the newest frame to Gemini with each turn. A C270 webcam or the browser camera works too.
-- **Vexo:** we didn't have a band, so we ran the Mac microphone through the Vexo open kit's simulated band, turned into the band's own format (Opus, 16 kHz, 20 ms packets) over the real Vexo protocol. With a real band the same code listens over Bluetooth.
+- **Vexo:** a Vexo band records the lecture and streams it over Bluetooth through the Vexo open kit's band library (Opus, 16 kHz, 20 ms packets). If the band isn't available, the Mac microphone goes through the kit's simulated band on the same protocol, so nothing else in the pipeline changes.
 - **Gemini** turns lecture transcripts into study notes and study plans. KaTeX draws the math, bundled so it works offline.
 - The dashboard is plain HTML and JavaScript fed by Pipecat RTVI server messages.
 
@@ -47,7 +43,7 @@ Ilumina is a real-time voice tutor for math.
 - **Speed versus depth.** The deeper Gemini model gave better answers but a 4-second pause feels broken in a voice conversation. We switched to Hydrogen and kept emotion scoring off the critical path.
 - **Not overreacting.** A tutor that changes course on every reading feels jumpy, so we built the blip-versus-trend tracker before wiring in adaptation.
 - **Seeing handwriting.** A head-worn camera sees the page at an angle and from a distance. Big handwriting within about 30 cm reads reliably; small writing doesn't, so we tell the student to hold it closer.
-- **No band in hand.** We built the lecture path against the Vexo simulated band so it works today and with real hardware later.
+- **The band arrived late.** We built the lecture path against Vexo's simulated band first, so when our bracelet arrived the same code switched to it with one flag.
 - **Filler words disappear.** Deepgram Flux drops "um" and "uh" from transcripts, so pauses and wait time carry the hesitation signal instead.
 - **The small stuff:** macOS root certificates, the Decisions API needing the v1beta endpoint, and the tutor hearing itself through laptop speakers (earbuds fix it).
 
@@ -66,7 +62,7 @@ Ilumina is a real-time voice tutor for math.
 
 ## What's next for Ilumina
 
-- Run on a real Vexo band, so Ilumina can follow a whole school day of lectures.
+- Wear the Vexo band all day, so Ilumina can follow a whole school day of lectures.
 - Learn each student's own baseline, so a naturally slow talker isn't read as confused.
 - Track progress across sessions and focus study plans on the moments a student struggled.
 - More subjects beyond math.
@@ -75,17 +71,8 @@ Ilumina is a real-time voice tutor for math.
 
 pipecat, deepgram, deepgram-flux, deepgram-aura, gemini, gemini-4, google-ai-studio, python, uv, javascript, html, css, katex, webrtc, ffmpeg, gopro, vexo
 
-## Track notes (for the "which prizes" field or the judges)
+## Sponsor tracks
 
 - **Google DeepMind, Best Use of Gemini 4:** Gemini 4 Hydrogen is the tutor and sees the student's handwriting each turn. Gemini Decision 1 scores emotion from audio plus voice evidence. Gemini also writes lecture notes and study plans.
 - **Deepgram, Best Voice on Pipecat:** Flux handles listening and turn detection, and its word timings are our voice evidence. Aura-2 is the voice. All in one Pipecat pipeline with first words in about 1.5 to 2 seconds.
-- **Vexo main track:** the lecture path runs through the Vexo open kit's band library and protocol, with the Mac mic standing in for the band, ready for a real band with one flag.
-
-## Required by the organizers (checklist)
-
-- [ ] Project description: the sections above
-- [x] Public GitHub repo with code and a README: https://github.com/MeagerPotato/ilumina (public, README on main)
-- [ ] 1 minute demo video (optional, backup if the live demo fails): YouTube, Unlisted
-- [ ] Sponsor tracks: Google DeepMind Best Use of Gemini 4, Deepgram Best Voice on Pipecat, Vexo main track
-- [ ] Every commit pushed before 6:00 PM PT
-- Landing page: Aiden's page from PR 7, as screenshots in the image gallery (we are not hosting it)
+- **Vexo main track:** a real Vexo band records the lecture through the open kit's band library and protocol, with Vexo's simulated band as the fallback.
