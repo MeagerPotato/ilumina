@@ -33,9 +33,10 @@ def _check(passcode: str) -> int:
     """200 if the passcode is right or none is set, 401 if wrong, 503 if keys are missing.
 
     With ILUMINA_PASSCODE unset or "off", anyone can start a session, and each one
-    spends the project's Deepgram and Gemini credits.
+    spends the project's Deepgram (or ElevenLabs) and Gemini credits.
     """
-    if not (os.getenv("DEEPGRAM_API_KEY") and os.getenv("GOOGLE_API_KEY")):
+    can_speak = os.getenv("DEEPGRAM_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
+    if not (can_speak and os.getenv("GOOGLE_API_KEY")):
         return 503  # never start a bot that cannot speak
     expected = os.getenv("ILUMINA_PASSCODE", "").strip()
     if expected.lower() in ("", "off"):

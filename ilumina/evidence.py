@@ -1,4 +1,5 @@
-"""Measured evidence about how one student turn was spoken, from Deepgram Flux word timings.
+"""Measured evidence about how one student turn was spoken, from the word timings of
+Deepgram Flux or, when it is the backup, ElevenLabs Scribe.
 
 These are measurements, not judgements. The dashboard shows them beside each reading,
 and Decision 1 gets them as one line next to the audio.
@@ -36,13 +37,25 @@ def _letters(word: str) -> str:
     return "".join(filter(str.isalpha, word)).lower()
 
 
+def _words(result: dict | None) -> list[dict]:
+    """Timed words, as {"word", "start", "end"}. Flux gives "word"; ElevenLabs gives
+    "text" and also lists the spaces between words, which are left out."""
+    words = []
+    for w in (result or {}).get("words") or []:
+        if isinstance(w, dict) and "word" not in w and w.get("type", "word") == "word":
+            w = {**w, "word": w.get("text")}
+        if _timed(w):
+            words.append(w)
+    return words
+
+
 def voice_evidence(result: dict | None, waited: float | None = None) -> dict | None:
     """Evidence from one Flux end-of-turn message, or None if it has no timed words.
 
     `waited` is the silence between the tutor finishing and the student starting, in
     seconds, when the student did not cut the tutor off.
     """
-    words = [w for w in (result or {}).get("words") or [] if _timed(w)]
+    words = _words(result)
     if not words:
         return None
     seconds = words[-1]["end"] - words[0]["start"]

@@ -1448,7 +1448,7 @@ requires-dist = [
     { name = "av", specifier = ">=19.0.2" },
     { name = "certifi", specifier = ">=2026.10.23" },
     { name = "google-genai", specifier = ">=3.2" },
-    { name = "pipecat-ai", extras = ["deepgram", "google", "runner", "silero", "webrtc"], specifier = "<2" },
+    { name = "pipecat-ai", extras = ["deepgram", "elevenlabs", "google", "runner", "silero", "webrtc"], specifier = "<2" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "sounddevice", specifier = ">=0.5.6" },
     { name = "vexo-open", extras = ["ble"], git = "https://github.com/VexoAI-Org/vexo-open-kit?subdirectory=python&rev=1e4291e2fa4896b1f603d3d4f0b009c483425da0" },

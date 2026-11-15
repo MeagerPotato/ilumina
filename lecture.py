@@ -25,7 +25,7 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 from google import genai
 
 from ilumina import config, memory, vexo_band
-from ilumina.transcribe import to_wav, transcribe
+from ilumina.transcribe import to_wav, transcribe_any
 
 
 def ask_yes(question: str) -> bool:
@@ -51,9 +51,11 @@ def read_text(path: str) -> str:
 
 
 def listen(args) -> str:
-    """Record through the Vexo band library and get the words from Deepgram."""
+    """Record through the Vexo band library and get the words from Deepgram (or ElevenLabs)."""
     # Check the keys first, so a lecture is never recorded for nothing.
-    missing = [k for k in ("DEEPGRAM_API_KEY", "GOOGLE_API_KEY") if not getattr(config, k)]
+    missing = [k for k in ("GOOGLE_API_KEY",) if not getattr(config, k)]
+    if not (config.DEEPGRAM_API_KEY or config.ELEVENLABS_API_KEY):
+        missing.append("DEEPGRAM_API_KEY (or ELEVENLABS_API_KEY)")
     if missing:
         sys.exit(f"Add {' and '.join(missing)} to .env first.")
     if args.band:
@@ -66,7 +68,8 @@ def listen(args) -> str:
         print("Listening on this computer's microphone as the Vexo band's microphone.")
         source = vexo_band.mic_packets()
     print("Tell the people near you that the lecture is being recorded. When it ends, the")
-    print("sound goes to Deepgram for text and the text to Google Gemini for notes.")
+    print("sound goes to Deepgram (or ElevenLabs, if Deepgram is down) for text and the text")
+    print("to Google Gemini for notes.")
     print("Press Ctrl+C to stop.")
 
     def progress(seconds):
@@ -75,9 +78,9 @@ def listen(args) -> str:
     pcm = vexo_band.record(
         source=source, seconds=args.seconds, band_number=args.band, on_progress=progress
     )
-    print(f"\nGot {len(pcm) / 32000:.0f} seconds of sound. Sending it to Deepgram for text...")
+    print(f"\nGot {len(pcm) / 32000:.0f} seconds of sound. Turning it into text...")
     try:
-        transcript = transcribe(pcm, config.DEEPGRAM_API_KEY)
+        transcript = transcribe_any(pcm, config.DEEPGRAM_API_KEY, config.ELEVENLABS_API_KEY)
     except RuntimeError as e:
         print(e)
         if ask_yes("Keep the recording on this computer so you can try again?"):
@@ -87,7 +90,7 @@ def listen(args) -> str:
             print(f"Kept. Try again with: uv run lecture.py record --file {path}")
         sys.exit(1)
     if not transcript:
-        sys.exit("Deepgram heard no words. Check the microphone and try again.")
+        sys.exit("No words were heard. Check the microphone and try again.")
     return transcript
 
 
