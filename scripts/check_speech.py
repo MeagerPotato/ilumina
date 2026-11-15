@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import certifi  # noqa: E402
+import certifi
 
 # As in bot.py: Python on macOS does not find the system's certificates by itself.
 os.environ.setdefault("SSL_CERT_FILE", certifi.where())
